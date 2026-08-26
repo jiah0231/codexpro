@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "deviceId": "windows-main",
+  "label": "Windows 总控机",
+  "roots": [
+    {
+      "id": "projects",
+      "label": "Windows 项目目录",
+      "path": "D:\\code",
+      "mode": "workspace-parent"
+    },
+    {
+      "id": "reference",
+      "label": "只读资料",
+      "path": "D:\\reference",
+      "mode": "read-only"
+    }
+  ],
+  "blockedGlobs": [
+    "**/secrets/**",
+    "**/credentials/**"
+  ],
+  "maxReadBytes": 180000,
+  "maxWriteBytes": 1000000,
+  "maxSearchResults": 200,
+  "maxOutputBytes": 120000
+}
