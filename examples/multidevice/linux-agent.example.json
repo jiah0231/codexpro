@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "deviceId": "lab-server",
+  "label": "实验室 Linux 服务器",
+  "roots": [
+    {
+      "id": "projects",
+      "label": "服务器项目",
+      "path": "/srv/projects",
+      "mode": "workspace-parent"
+    },
+    {
+      "id": "app-logs",
+      "label": "应用日志",
+      "path": "/var/log/myapp",
+      "mode": "read-only"
+    }
+  ],
+  "blockedGlobs": [
+    "**/secrets/**",
+    "**/credentials/**"
+  ],
+  "maxReadBytes": 180000,
+  "maxWriteBytes": 1000000,
+  "maxSearchResults": 200,
+  "maxOutputBytes": 120000
+}
