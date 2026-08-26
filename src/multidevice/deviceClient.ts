@@ -1,9 +1,21 @@
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { DeviceStatus, HubDevice } from "./types.js";
 import { errorMessage, resultStructured } from "./types.js";
 import { CODEXPRO_MULTIDEVICE_VERSION } from "./version.js";
+
+const REQUIRED_AGENT_CAPABILITIES = [
+  "tree",
+  "search",
+  "read",
+  "write",
+  "edit",
+  "git-status",
+  "git-diff"
+] as const;
 
 function posixShellQuote(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
@@ -19,14 +31,31 @@ function terminalDiagnostic(error: unknown): string {
     .slice(0, 8000);
 }
 
-function transportParameters(device: HubDevice): { command: string; args: string[] } {
-  if (device.transport === "local") {
-    const agentEntry = fileURLToPath(new URL("../agent.js", import.meta.url));
+function localAgentParameters(device: HubDevice): { command: string; args: string[] } {
+  const builtAgent = fileURLToPath(new URL("../agent.js", import.meta.url));
+  if (fs.existsSync(builtAgent)) {
     return {
       command: process.execPath,
-      args: [agentEntry, "--policy", device.policyPath]
+      args: [builtAgent, "--policy", device.policyPath]
     };
   }
+
+  // `npm run dev:hub` executes this module from src/. In that case launch the
+  // TypeScript entry through the project's pinned tsx development dependency.
+  const sourceAgent = fileURLToPath(new URL("../agent.ts", import.meta.url));
+  const tsxCli = fileURLToPath(new URL("../../node_modules/tsx/dist/cli.mjs", import.meta.url));
+  if (!fs.existsSync(sourceAgent) || !fs.existsSync(tsxCli)) {
+    throw new Error("Local CodexPro Agent entrypoint is unavailable. Run npm run build first.");
+  }
+  return {
+    command: process.execPath,
+    args: [tsxCli, sourceAgent, "--policy", device.policyPath]
+  };
+}
+
+function transportParameters(device: HubDevice): { command: string; args: string[] } {
+  if (device.transport === "local") return localAgentParameters(device);
+
   const remoteCommand = `codexpro-agent --policy ${posixShellQuote(device.policyPath)}`;
   return {
     command: "ssh",
@@ -53,6 +82,35 @@ function transportParameters(device: HubDevice): { command: string; args: string
   };
 }
 
+function validateAgentHandshake(client: Client, device: HubDevice, structured: Record<string, unknown>): void {
+  const serverVersion = client.getServerVersion();
+  if (!serverVersion || serverVersion.version !== CODEXPRO_MULTIDEVICE_VERSION) {
+    throw new Error(
+      `Agent version mismatch: expected ${CODEXPRO_MULTIDEVICE_VERSION}, received ${serverVersion?.version ?? "unknown"}.`
+    );
+  }
+  if (structured.schema_version !== 1) {
+    throw new Error(`Unsupported Agent schema version: ${String(structured.schema_version ?? "unknown")}.`);
+  }
+  if (structured.device_id !== device.id) {
+    throw new Error(
+      `Agent identity mismatch: expected ${device.id}, received ${String(structured.device_id ?? "unknown")}.`
+    );
+  }
+  if (structured.shell_execution !== false) {
+    throw new Error("Target Agent did not confirm that shell execution is disabled.");
+  }
+  if (!Array.isArray(structured.capabilities) || structured.capabilities.some((value) => typeof value !== "string")) {
+    throw new Error("Target Agent returned an invalid capability list.");
+  }
+  const capabilities = new Set(structured.capabilities as string[]);
+  for (const capability of REQUIRED_AGENT_CAPABILITIES) {
+    if (!capabilities.has(capability)) {
+      throw new Error(`Target Agent is missing required capability: ${capability}.`);
+    }
+  }
+}
+
 export class DeviceClient {
   private client?: Client;
   private transport?: StdioClientTransport;
@@ -61,7 +119,11 @@ export class DeviceClient {
   private lastError?: string;
   private lastDiagnostic?: string;
 
-  constructor(readonly device: HubDevice) {}
+  constructor(
+    readonly device: HubDevice,
+    private readonly connectTimeoutMs = 20_000,
+    private readonly callTimeoutMs = 60_000
+  ) {}
 
   status(): DeviceStatus {
     return {
@@ -85,13 +147,19 @@ export class DeviceClient {
       version: CODEXPRO_MULTIDEVICE_VERSION
     });
     try {
-      await client.connect(transport);
-      const description = await client.callTool({ name: "agent_describe", arguments: {} });
-      if ((description as any).isError) throw new Error(`Agent handshake failed: ${stderr || "agent_describe returned an error"}`);
-      const structured = resultStructured(description);
-      if (structured.device_id !== this.device.id) {
-        throw new Error(`Agent identity mismatch: expected ${this.device.id}, received ${String(structured.device_id ?? "unknown")}.`);
+      await client.connect(transport, {
+        timeout: this.connectTimeoutMs,
+        maxTotalTimeout: this.connectTimeoutMs
+      });
+      const description = await client.callTool(
+        { name: "agent_describe", arguments: {} },
+        CallToolResultSchema,
+        { timeout: this.connectTimeoutMs, maxTotalTimeout: this.connectTimeoutMs }
+      );
+      if ((description as any).isError) {
+        throw new Error(`Agent handshake failed: ${stderr || "agent_describe returned an error"}`);
       }
+      validateAgentHandshake(client, this.device, resultStructured(description));
       this.transport = transport;
       this.client = client;
       this.state = "online";
@@ -125,7 +193,11 @@ export class DeviceClient {
   async callTool(name: string, args: Record<string, unknown>): Promise<any> {
     try {
       const client = await this.connect();
-      const result = await client.callTool({ name, arguments: args });
+      const result = await client.callTool(
+        { name, arguments: args },
+        CallToolResultSchema,
+        { timeout: this.callTimeoutMs, maxTotalTimeout: this.callTimeoutMs }
+      );
       this.state = "online";
       this.lastError = undefined;
       this.lastDiagnostic = undefined;
@@ -163,8 +235,14 @@ export class DeviceClient {
 export class DeviceRegistry {
   private readonly clients = new Map<string, DeviceClient>();
 
-  constructor(devices: HubDevice[]) {
-    for (const device of devices) this.clients.set(device.id, new DeviceClient(device));
+  constructor(
+    devices: HubDevice[],
+    connectTimeoutMs = 20_000,
+    callTimeoutMs = 60_000
+  ) {
+    for (const device of devices) {
+      this.clients.set(device.id, new DeviceClient(device, connectTimeoutMs, callTimeoutMs));
+    }
   }
 
   list(): DeviceStatus[] {
