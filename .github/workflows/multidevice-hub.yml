@@ -1,0 +1,63 @@
+name: Multi-device Hub
+
+on:
+  pull_request:
+    paths:
+      - "src/multidevice/**"
+      - "src/agent.ts"
+      - "src/hub.ts"
+      - "scripts/multidevice-smoke.mjs"
+      - "examples/multidevice/**"
+      - "MULTI_DEVICE_HUB.md"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
+      - ".github/workflows/multidevice-hub.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: ${{ matrix.os }} / Node ${{ matrix.node }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+        node:
+          - 20
+          - 22
+
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: TypeScript build
+        run: npm run build
+
+      - name: Multi-device security and routing smoke test
+        run: npm run multidevice:smoke
+
+      - name: Existing regression smoke suite
+        run: npm run smoke
+
+      - name: Stress test
+        run: npm run stress
+
+      - name: Package dry run
+        run: npm pack --dry-run
