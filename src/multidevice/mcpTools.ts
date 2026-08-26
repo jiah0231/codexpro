@@ -25,8 +25,8 @@ export const WRITE_ANNOTATIONS = {
 };
 
 export const readScopeSchema = {
-  workspace_id: z.string().optional().describe("Agent workspace id from agent_open_workspace."),
-  root_id: z.string().optional().describe("Approved root id for read-only browsing. Provide exactly one of workspace_id or root_id.")
+  workspace_id: z.string().min(1).max(64).optional().describe("Agent workspace id from agent_open_workspace."),
+  root_id: z.string().min(1).max(64).optional().describe("Approved root id for read-only browsing. Provide exactly one of workspace_id or root_id.")
 };
 
 export function bool(value: unknown, fallback = false): boolean {
