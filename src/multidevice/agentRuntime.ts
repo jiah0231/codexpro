@@ -6,6 +6,7 @@ import type { AgentPolicy, AgentRootPolicy, AgentWorkspaceDescriptor, RootDescri
 import { stableToken } from "./types.js";
 
 const MAX_AGENT_WORKSPACES = 256;
+const WINDOWS_DRIVE_PREFIX = /^[A-Za-z]:/;
 
 export interface StoredAgentWorkspace {
   descriptor: AgentWorkspaceDescriptor;
@@ -20,19 +21,39 @@ export interface AgentReadScope {
   scope: "workspace" | "root";
 }
 
-function portableRelativeDirectory(value: unknown): string {
-  const raw = String(value ?? ".").trim().replaceAll("\\", "/");
-  if (!raw || raw === ".") return ".";
-  if (raw.length > 4096 || /[\0\r\n]/.test(raw)) throw new CodexProError("relative_dir is invalid.");
-  if (path.posix.isAbsolute(raw) || path.win32.isAbsolute(raw)) {
-    throw new CodexProError("relative_dir must be relative to the approved root.");
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function replacePathVariant(message: string, variant: string, replacement: string): string {
+  if (!variant) return message;
+  if (process.platform === "win32") {
+    return message.replace(new RegExp(escapeRegExp(variant), "gi"), replacement);
+  }
+  return message.split(variant).join(replacement);
+}
+
+function portableRelativePath(value: unknown, field: string, fallback = "."): string {
+  const raw = String(value ?? fallback).trim().replaceAll("\\", "/");
+  if (!raw) {
+    if (fallback) return fallback;
+    throw new CodexProError(`${field} is required.`);
+  }
+  if (raw.length > 4096 || /[\0\r\n]/.test(raw)) {
+    throw new CodexProError(`${field} is invalid.`);
+  }
+  if (path.posix.isAbsolute(raw) || path.win32.isAbsolute(raw) || WINDOWS_DRIVE_PREFIX.test(raw)) {
+    throw new CodexProError(`${field} must be relative to the selected workspace or approved root.`);
   }
   if (raw.split("/").some((segment) => segment === "..")) {
-    throw new CodexProError("relative_dir must not contain parent traversal segments.");
+    throw new CodexProError(`${field} must not contain parent traversal segments.`);
   }
   const normalized = path.posix.normalize(raw);
   if (normalized === ".." || normalized.startsWith("../")) {
-    throw new CodexProError("relative_dir escapes the approved root.");
+    throw new CodexProError(`${field} escapes the selected workspace or approved root.`);
+  }
+  if (process.platform === "win32" && normalized.includes(":")) {
+    throw new CodexProError(`${field} must not contain a Windows alternate data stream.`);
   }
   return normalized;
 }
@@ -51,9 +72,24 @@ export class AgentRuntime {
     return this.policy.roots.map(({ id, label, mode }) => ({ id, label, mode }));
   }
 
+  relativePath(value: unknown, field = "path", fallback = "."): string {
+    return portableRelativePath(value, field, fallback);
+  }
+
   publicError(error: unknown): Error {
     let message = error instanceof Error ? error.message : String(error);
-    for (const root of this.policy.roots) message = message.split(root.path).join(`$ROOT[${root.id}]`);
+    for (const root of this.policy.roots) {
+      const replacement = `$ROOT[${root.id}]`;
+      const variants = [...new Set([
+        root.path,
+        root.path.replaceAll("\\", "/"),
+        root.path.replaceAll("/", "\\")
+      ])].sort((left, right) => right.length - left.length);
+      for (const variant of variants) message = replacePathVariant(message, variant, replacement);
+    }
+    message = message
+      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "?")
+      .slice(0, 4000);
     const publicError = new Error(message);
     publicError.name = error instanceof Error ? error.name : "Error";
     return publicError;
@@ -82,7 +118,7 @@ export class AgentRuntime {
     if (root.mode !== "workspace-parent") {
       throw new CodexProError(`Root ${root.id} is read-only and cannot contain a writable workspace.`);
     }
-    const requestedRelative = portableRelativeDirectory(relativeDirInput);
+    const requestedRelative = this.relativePath(relativeDirInput, "relative_dir", ".");
     const parts = requestedRelative.split("/").filter((part) => part && part !== ".");
     const candidate = path.resolve(root.path, ...parts);
     if (!fs.existsSync(candidate)) throw new CodexProError(`Workspace directory does not exist under root ${root.id}: ${requestedRelative}`);
