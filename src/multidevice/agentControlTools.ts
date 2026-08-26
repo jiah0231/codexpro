@@ -45,8 +45,8 @@ export function registerAgentControlTools(server: McpServer, runtime: AgentRunti
     title: "Open Target Workspace",
     description: "Open an existing directory inside a workspace-parent root. The returned workspace id is required for every write.",
     inputSchema: {
-      root_id: z.string().describe("Approved workspace-parent root id."),
-      relative_dir: z.string().optional().describe("Directory relative to the root. Default: .")
+      root_id: z.string().min(1).max(64).describe("Approved workspace-parent root id."),
+      relative_dir: z.string().max(4096).optional().describe("Directory relative to the root. Default: .")
     },
     annotations: SESSION_ANNOTATIONS
   }, async (args) => {
