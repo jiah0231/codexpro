@@ -291,12 +291,19 @@ export function loadHubConfig(configPathInput: string): HubConfig {
   }
   const host = String(raw.host ?? "127.0.0.1").trim();
   if (!host || host.length > 253 || /[\r\n\0/]/.test(host)) throw new Error("host is invalid.");
+  const agentConnectTimeoutMs = boundedInt(raw.agentConnectTimeoutMs, 20_000, 5_000, 120_000);
+  const agentCallTimeoutMs = boundedInt(raw.agentCallTimeoutMs, 60_000, 5_000, 300_000);
+  if (agentCallTimeoutMs < agentConnectTimeoutMs) {
+    throw new Error("agentCallTimeoutMs must be greater than or equal to agentConnectTimeoutMs.");
+  }
   return {
     schemaVersion: 1,
     host,
     port: boundedInt(raw.port, 8790, 1, 65_535),
     maxSessions: boundedInt(raw.maxSessions, 64, 1, 512),
     sessionTtlMs: boundedInt(raw.sessionTtlMs, 30 * 60_000, 60_000, 24 * 60 * 60_000),
+    agentConnectTimeoutMs,
+    agentCallTimeoutMs,
     devices
   };
 }
