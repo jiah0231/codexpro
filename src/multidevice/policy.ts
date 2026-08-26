@@ -63,6 +63,19 @@ function expandHome(input: string): string {
   return input;
 }
 
+function canonicalExistingFile(filePathInput: string, field: string): string {
+  const resolved = path.resolve(expandHome(filePathInput));
+  if (!fs.existsSync(resolved)) throw new Error(`${field} does not exist: ${resolved}`);
+  const realPath = fs.realpathSync.native(resolved);
+  if (!fs.statSync(realPath).isFile()) throw new Error(`${field} is not a file: ${realPath}`);
+  return realPath;
+}
+
+function isPathInside(child: string, parent: string): boolean {
+  const relative = path.relative(parent, child);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
 function readJsonFile(filePath: string): unknown {
   const text = fs.readFileSync(filePath, "utf8");
   try {
@@ -122,8 +135,7 @@ function validateAgentRoot(value: unknown, baseDir: string, index: number): Agen
 }
 
 export function loadAgentPolicy(policyPathInput: string): AgentPolicy {
-  const expanded = expandHome(policyPathInput.trim());
-  const policyPath = path.resolve(expanded);
+  const policyPath = canonicalExistingFile(policyPathInput.trim(), "Agent policy");
   const raw = readJsonFile(policyPath) as AgentPolicyInput;
   assertPlainObject(raw, "agent policy");
   if (raw.schemaVersion !== undefined && raw.schemaVersion !== 1) {
@@ -143,6 +155,11 @@ export function loadAgentPolicy(policyPathInput: string): AgentPolicy {
     const normalizedPath = process.platform === "win32" ? root.path.toLowerCase() : root.path;
     if (rootPaths.has(normalizedPath)) throw new Error(`Duplicate root path: ${root.path}.`);
     rootPaths.add(normalizedPath);
+    if (isPathInside(policyPath, root.path)) {
+      throw new Error(
+        `Agent policy must be stored outside every approved root. Move the policy file out of root ${root.id}.`
+      );
+    }
   }
   return {
     schemaVersion: 1,
@@ -208,11 +225,11 @@ function validateHubDevice(value: unknown, baseDir: string, index: number): HubD
   if (input.transport === "local") {
     const rawPolicyPath = validateRemotePolicyPath(input.policyPath, `devices[${index}].policyPath`);
     const expanded = expandHome(rawPolicyPath);
-    const policyPath = path.isAbsolute(expanded) || path.win32.isAbsolute(expanded)
+    const candidate = path.isAbsolute(expanded) || path.win32.isAbsolute(expanded)
       ? path.resolve(expanded)
       : path.resolve(baseDir, expanded);
-    if (!fs.existsSync(policyPath)) throw new Error(`Local device policy does not exist: ${policyPath}`);
-    return { id, label, transport: "local", policyPath: fs.realpathSync.native(policyPath) };
+    const policyPath = canonicalExistingFile(candidate, `devices[${index}].policyPath`);
+    return { id, label, transport: "local", policyPath };
   }
   if (input.transport === "ssh") {
     return {
@@ -227,8 +244,7 @@ function validateHubDevice(value: unknown, baseDir: string, index: number): HubD
 }
 
 export function loadHubConfig(configPathInput: string): HubConfig {
-  const expanded = expandHome(configPathInput.trim());
-  const configPath = path.resolve(expanded);
+  const configPath = canonicalExistingFile(configPathInput.trim(), "Hub config");
   const raw = readJsonFile(configPath) as HubConfigInput;
   assertPlainObject(raw, "hub config");
   if (raw.schemaVersion !== undefined && raw.schemaVersion !== 1) {
@@ -243,6 +259,21 @@ export function loadHubConfig(configPathInput: string): HubConfig {
   for (const device of devices) {
     if (ids.has(device.id)) throw new Error(`Duplicate device id: ${device.id}.`);
     ids.add(device.id);
+    if (device.transport === "local") {
+      const localPolicy = loadAgentPolicy(device.policyPath);
+      if (localPolicy.deviceId !== device.id) {
+        throw new Error(
+          `Local device identity mismatch: Hub device ${device.id} uses an Agent policy for ${localPolicy.deviceId}.`
+        );
+      }
+      for (const root of localPolicy.roots) {
+        if (isPathInside(configPath, root.path)) {
+          throw new Error(
+            `Hub config must be stored outside every approved local root. Move it out of device ${device.id} root ${root.id}.`
+          );
+        }
+      }
+    }
   }
   const host = String(raw.host ?? "127.0.0.1").trim();
   if (!host || host.length > 253 || /[\r\n\0/]/.test(host)) throw new Error("host is invalid.");
