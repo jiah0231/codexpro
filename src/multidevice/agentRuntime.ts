@@ -64,6 +64,7 @@ export class AgentRuntime {
   private readonly workspaces = new Map<string, StoredAgentWorkspace>();
 
   constructor(readonly policy: AgentPolicy, readonly config: CodexProConfig) {
+    (config as CodexProConfig & { blockedGlobsNocase?: boolean }).blockedGlobsNocase = true;
     this.guard = new PathGuard(config);
     for (const root of policy.roots) this.rootsById.set(root.id, root);
   }
