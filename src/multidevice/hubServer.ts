@@ -4,11 +4,12 @@ import { registerHubControlTools } from "./hubControlTools.js";
 import { registerHubReadTools } from "./hubReadTools.js";
 import { HubSession } from "./hubSession.js";
 import { registerHubWriteTools } from "./hubWriteTools.js";
+import { CODEXPRO_MULTIDEVICE_VERSION } from "./version.js";
 
 export function createHubServer(registry: DeviceRegistry): McpServer {
   const session = new HubSession(registry);
   const server = new McpServer(
-    { name: "CodexPro Multi-Device Hub", version: "0.31.0" },
+    { name: "CodexPro Multi-Device Hub", version: CODEXPRO_MULTIDEVICE_VERSION },
     {
       instructions: [
         "CodexPro Hub is the single ChatGPT-facing MCP endpoint for administrator-approved devices.",
