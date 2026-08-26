@@ -141,8 +141,8 @@ export class PathGuard {
     const rel = normalizeRelPath(relPath).replace(/^\.\//, "");
     if (!rel || rel === ".") return false;
     return this.config.blockedGlobs.some((glob) =>
-      minimatch(rel, glob, { dot: true, nocase: false, matchBase: false }) ||
-      minimatch(path.basename(rel), glob, { dot: true, nocase: false, matchBase: true })
+      minimatch(rel, glob, { dot: true, nocase: true, matchBase: false }) ||
+      minimatch(path.basename(rel), glob, { dot: true, nocase: true, matchBase: true })
     );
   }
 
