@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { agentGitEnvironment, agentGitGlobalArgs } from "../dist/multidevice/agentGitOps.js";
 import { loadAgentPolicy, loadHubConfig } from "../dist/multidevice/policy.js";
 
 const temp = await fsp.mkdtemp(path.join(os.tmpdir(), "codexpro-multidevice-"));
@@ -43,6 +45,7 @@ try {
     fsp.writeFile(path.join(projectB, "other.txt"), "other project\n", "utf8"),
     fsp.writeFile(path.join(reference, "guide.txt"), "read only guide\n", "utf8")
   ]);
+  await fsp.writeFile(path.join(projectA, ".ENV"), "UPPERCASE=also-blocked\n", "utf8");
   await fsp.writeFile(policyPath, JSON.stringify(agentPolicy(), null, 2), "utf8");
 
   const loadedPolicy = loadAgentPolicy(policyPath);
@@ -57,7 +60,21 @@ try {
       { id: "smoke-device", label: "Smoke Device", transport: "local", policyPath }
     ]
   }, null, 2), "utf8");
-  assert.equal(loadHubConfig(validHubPath).devices.length, 1);
+  const loadedHub = loadHubConfig(validHubPath);
+  assert.equal(loadedHub.devices.length, 1);
+  assert.equal(loadedHub.agentConnectTimeoutMs, 20_000);
+  assert.equal(loadedHub.agentCallTimeoutMs, 60_000);
+
+  const invalidTimeoutHubPath = path.join(temp, "hub-invalid-timeout.json");
+  await fsp.writeFile(invalidTimeoutHubPath, JSON.stringify({
+    schemaVersion: 1,
+    agentConnectTimeoutMs: 60_000,
+    agentCallTimeoutMs: 5_000,
+    devices: [
+      { id: "smoke-device", label: "Smoke Device", transport: "local", policyPath }
+    ]
+  }, null, 2), "utf8");
+  assert.throws(() => loadHubConfig(invalidTimeoutHubPath), /greater than or equal/);
 
   const policyInsideWritableRoot = path.join(projectA, "agent-policy.json");
   await fsp.writeFile(policyInsideWritableRoot, JSON.stringify(agentPolicy(), null, 2), "utf8");
@@ -99,6 +116,29 @@ try {
   }, null, 2), "utf8");
   assert.throws(() => loadHubConfig(mismatchedHubPath), /identity mismatch/);
 
+  const originalGitDir = process.env.GIT_DIR;
+  process.env.GIT_DIR = path.join(temp, "must-not-be-inherited");
+  const safeGitEnv = agentGitEnvironment(projectA);
+  if (originalGitDir === undefined) delete process.env.GIT_DIR;
+  else process.env.GIT_DIR = originalGitDir;
+  assert.equal(safeGitEnv.GIT_DIR, undefined);
+  assert.equal(safeGitEnv.GIT_TERMINAL_PROMPT, "0");
+  assert.equal(safeGitEnv.GIT_OPTIONAL_LOCKS, "0");
+  const safeGitArgs = agentGitGlobalArgs().join("\0");
+  assert.match(safeGitArgs, /core\.fsmonitor=false/);
+  assert.match(safeGitArgs, /core\.hooksPath=/);
+  assert.match(safeGitArgs, /credential\.helper=/);
+
+  const gitAvailable = spawnSync("git", ["--version"], { encoding: "utf8", windowsHide: true }).status === 0;
+  if (gitAvailable) {
+    const parentInit = spawnSync("git", ["init", "-q"], {
+      cwd: projects,
+      encoding: "utf8",
+      windowsHide: true
+    });
+    assert.equal(parentInit.status, 0, parentInit.stderr);
+  }
+
   transport = new StdioClientTransport({
     command: process.execPath,
     args: [path.resolve("dist/agent.js"), "--policy", policyPath],
@@ -123,6 +163,15 @@ try {
   const readonlyOpen = await tool(client, "agent_open_workspace", { root_id: "reference", relative_dir: "." });
   assert.equal(readonlyOpen.isError, true);
 
+  for (const invalidRelativeDir of ["C:", "C:project-a", "C:\\project-a", "\\\\server\\share"]) {
+    const invalidOpen = await tool(client, "agent_open_workspace", {
+      root_id: "projects",
+      relative_dir: invalidRelativeDir
+    });
+    assert.equal(invalidOpen.isError, true, `Expected relative_dir to be rejected: ${invalidRelativeDir}`);
+    assert(!JSON.stringify(invalidOpen).includes(projects));
+  }
+
   const opened = await tool(client, "agent_open_workspace", { root_id: "projects", relative_dir: "project-a" });
   assert.equal(opened.isError, undefined);
   const workspaceId = opened.structuredContent.workspace_id;
@@ -131,6 +180,12 @@ try {
   const workspaceRead = await tool(client, "agent_read", { workspace_id: workspaceId, path: "main.txt" });
   assert.equal(workspaceRead.isError, undefined);
   assert.match(workspaceRead.content[0].text, /alpha/);
+
+  const driveRelativeRead = await tool(client, "agent_read", {
+    workspace_id: workspaceId,
+    path: "C:main.txt"
+  });
+  assert.equal(driveRelativeRead.isError, true);
 
   const rootRead = await tool(client, "agent_read", { root_id: "reference", path: "guide.txt" });
   assert.equal(rootRead.isError, undefined);
@@ -146,6 +201,8 @@ try {
 
   const blockedRead = await tool(client, "agent_read", { workspace_id: workspaceId, path: ".env" });
   assert.equal(blockedRead.isError, true);
+  const uppercaseBlockedRead = await tool(client, "agent_read", { workspace_id: workspaceId, path: ".ENV" });
+  assert.equal(uppercaseBlockedRead.isError, true);
 
   const writeResult = await tool(client, "agent_write", {
     workspace_id: workspaceId,
@@ -163,6 +220,29 @@ try {
   });
   assert.equal(editResult.isError, undefined);
   assert.equal(await fsp.readFile(path.join(projectA, "main.txt"), "utf8"), "beta\n");
+
+  const driveRelativeWrite = await tool(client, "agent_write", {
+    workspace_id: workspaceId,
+    path: "C:escape.txt",
+    content: "must not be written\n"
+  });
+  assert.equal(driveRelativeWrite.isError, true);
+
+  const outsideHardLinkSource = path.join(temp, "outside-hard-link.txt");
+  const insideHardLink = path.join(projectA, "inside-hard-link.txt");
+  await fsp.writeFile(outsideHardLinkSource, "outside must remain unchanged\n", "utf8");
+  try {
+    await fsp.link(outsideHardLinkSource, insideHardLink);
+    const hardLinkWrite = await tool(client, "agent_write", {
+      workspace_id: workspaceId,
+      path: "inside-hard-link.txt",
+      content: "must not replace shared inode\n"
+    });
+    assert.equal(hardLinkWrite.isError, true);
+    assert.equal(await fsp.readFile(outsideHardLinkSource, "utf8"), "outside must remain unchanged\n");
+  } catch (error) {
+    if (!error || !["EPERM", "EACCES", "ENOTSUP", "EXDEV"].includes(error.code)) throw error;
+  }
 
   const escapeWrite = await tool(client, "agent_write", {
     workspace_id: workspaceId,
@@ -190,6 +270,21 @@ try {
     assert.equal(symlinkRead.isError, true);
   } catch (error) {
     if (!error || !["EPERM", "EACCES", "ENOTSUP"].includes(error.code)) throw error;
+  }
+
+  if (gitAvailable) {
+    const parentRepositoryStatus = await tool(client, "agent_git_status", { workspace_id: workspaceId });
+    assert.equal(parentRepositoryStatus.isError, true, "Agent must not use a Git repository above the workspace.");
+
+    const nestedInit = spawnSync("git", ["init", "-q"], {
+      cwd: projectA,
+      encoding: "utf8",
+      windowsHide: true
+    });
+    assert.equal(nestedInit.status, 0, nestedInit.stderr);
+    const workspaceRepositoryStatus = await tool(client, "agent_git_status", { workspace_id: workspaceId });
+    assert.equal(workspaceRepositoryStatus.isError, undefined);
+    assert.match(workspaceRepositoryStatus.content[0].text, /##/);
   }
 
   const escapeOpen = await tool(client, "agent_open_workspace", {
