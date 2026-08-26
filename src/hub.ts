@@ -2,8 +2,7 @@
 import { DeviceRegistry } from "./multidevice/deviceClient.js";
 import { startHubHttp } from "./multidevice/hubHttp.js";
 import { loadHubConfig } from "./multidevice/policy.js";
-
-const VERSION = "0.31.0";
+import { CODEXPRO_MULTIDEVICE_VERSION } from "./multidevice/version.js";
 
 function optionValue(argv: string[], name: string): string | undefined {
   const prefix = `--${name}=`;
@@ -20,7 +19,7 @@ function printHelp(): void {
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   if (argv.includes("--version") || argv.includes("-v") || argv[0] === "version") {
-    console.log(VERSION);
+    console.log(CODEXPRO_MULTIDEVICE_VERSION);
     return;
   }
   if (argv.includes("--help") || argv.includes("-h") || argv[0] === "help") {
