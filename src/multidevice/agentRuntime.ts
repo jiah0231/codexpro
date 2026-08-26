@@ -76,6 +76,21 @@ export class AgentRuntime {
     return portableRelativePath(value, field, fallback);
   }
 
+  assertSingleLinkWriteTarget(workspace: Workspace, filePath: string): void {
+    const resolved = this.guard.resolve(workspace, filePath, { forWrite: true });
+    try {
+      const stat = fs.statSync(resolved.absPath);
+      if (stat.isFile() && stat.nlink > 1) {
+        throw new CodexProError(
+          `Refusing to modify a file with ${stat.nlink} hard links: ${resolved.relPath}.`
+        );
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return;
+      throw error;
+    }
+  }
+
   publicError(error: unknown): Error {
     let message = error instanceof Error ? error.message : String(error);
     for (const root of this.policy.roots) {
