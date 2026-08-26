@@ -25,6 +25,8 @@
     "apps-sdk",
     "codexpro",
     "local-development",
+    "multi-device",
+    "ssh-agent",
     "cloudflare-tunnel",
     "ngrok",
     "tailscale"
@@ -42,9 +44,11 @@
     "docs/og.svg",
     "docs/star.svg",
     "docs/images",
+    "examples",
     "scripts",
     "README.md",
     "README_ZH.md",
+    "MULTI_DEVICE_HUB.md",
     "PUBLIC_LAUNCH_CHECKLIST.md",
     "DOMAIN_SETUP.md",
     "LICENSE",
@@ -65,7 +69,9 @@
   "bin": {
     "codexpro": "scripts/codexpro.mjs",
     "codexpro-mcp": "dist/stdio.js",
-    "codexpro-mcp-http": "dist/http.js"
+    "codexpro-mcp-http": "dist/http.js",
+    "codexpro-hub": "dist/hub.js",
+    "codexpro-agent": "dist/agent.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -74,10 +80,15 @@
     "start": "node dist/stdio.js",
     "start:stdio": "node dist/stdio.js",
     "start:http": "node dist/http.js",
+    "start:hub": "node dist/hub.js",
+    "start:agent": "node dist/agent.js",
     "dev:stdio": "tsx src/stdio.ts",
     "dev:http": "tsx src/http.ts",
-    "smoke": "node scripts/analysis-smoke.mjs && node scripts/analysis-cli-smoke.mjs && node scripts/smoke.mjs && node scripts/skill-precedence-smoke.mjs && node scripts/import-smoke.mjs && node scripts/http-smoke.mjs && node scripts/widget-smoke.mjs && node scripts/pro-smoke.mjs && node scripts/doctor-smoke.mjs && node scripts/settings-smoke.mjs && node scripts/execute-handoff-smoke.mjs && node scripts/release-guard-smoke.mjs",
+    "dev:hub": "tsx src/hub.ts",
+    "dev:agent": "tsx src/agent.ts",
+    "smoke": "node scripts/analysis-smoke.mjs && node scripts/analysis-cli-smoke.mjs && node scripts/smoke.mjs && node scripts/skill-precedence-smoke.mjs && node scripts/import-smoke.mjs && node scripts/http-smoke.mjs && node scripts/widget-smoke.mjs && node scripts/pro-smoke.mjs && node scripts/doctor-smoke.mjs && node scripts/settings-smoke.mjs && node scripts/execute-handoff-smoke.mjs && node scripts/multidevice-smoke.mjs && node scripts/release-guard-smoke.mjs",
     "stress": "npm run build && node scripts/stress.mjs",
+    "multidevice:smoke": "npm run build && node scripts/multidevice-smoke.mjs",
     "analysis:smoke": "npm run build && node scripts/analysis-smoke.mjs",
     "analysis:cli-smoke": "npm run build && node scripts/analysis-cli-smoke.mjs",
     "doctor": "node scripts/codexpro.mjs doctor",
