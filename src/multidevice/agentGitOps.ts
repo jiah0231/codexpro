@@ -3,7 +3,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import type { CodexProConfig } from "../config.js";
 import type { Workspace } from "../guard.js";
-import { CodexProError, isSubpath, PathGuard } from "../guard.js";
+import { CodexProError, PathGuard } from "../guard.js";
 import { redactSensitiveText } from "../redact.js";
 
 const AGENT_GIT_TIMEOUT_MS = 30_000;
@@ -65,7 +65,7 @@ function invokeGit(config: CodexProConfig, workspace: Workspace, args: string[])
   };
 }
 
-function successfulOutput(result: GitInvocationResult, operation: string): string {
+function requireSuccessful(result: GitInvocationResult, operation: string): string {
   if (result.error) {
     if ((result.error as NodeJS.ErrnoException).code === "ETIMEDOUT") {
       throw new CodexProError(`${operation} timed out after ${AGENT_GIT_TIMEOUT_MS} ms.`);
@@ -75,15 +75,28 @@ function successfulOutput(result: GitInvocationResult, operation: string): strin
   if (result.status !== 0) {
     throw new CodexProError(result.stderr || result.stdout || `${operation} exited with status ${result.status}.`);
   }
-  return redactSensitiveText(result.stdout || "(no output)");
+  return result.stdout;
+}
+
+function successfulOutput(result: GitInvocationResult, operation: string): string {
+  return redactSensitiveText(requireSuccessful(result, operation) || "(no output)");
+}
+
+function comparablePath(value: string): string {
+  const normalized = path.normalize(value);
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 
 function requireRepositoryRoot(config: CodexProConfig, workspace: Workspace): void {
   const result = invokeGit(config, workspace, ["rev-parse", "--show-toplevel"]);
-  const topLevelOutput = successfulOutput(result, "git rev-parse");
+  const topLevelOutput = requireSuccessful(result, "git rev-parse");
+  if (!topLevelOutput || /[\r\n\0]/.test(topLevelOutput)) {
+    throw new CodexProError("Git returned an invalid repository root.");
+  }
   const topLevel = fs.realpathSync.native(path.resolve(workspace.root, topLevelOutput));
-  if (!isSubpath(topLevel, workspace.root)) {
-    throw new CodexProError("Git repository root is outside the opened workspace.");
+  const workspaceRoot = fs.realpathSync.native(workspace.root);
+  if (comparablePath(topLevel) !== comparablePath(workspaceRoot)) {
+    throw new CodexProError("Git repository root must equal the opened workspace root.");
   }
 }
 
