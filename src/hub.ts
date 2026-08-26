@@ -29,7 +29,11 @@ async function main(): Promise<void> {
   const configPath = optionValue(argv, "config") ?? process.env.CODEXPRO_HUB_CONFIG;
   if (!configPath) throw new Error("Missing Hub config. Pass --config or set CODEXPRO_HUB_CONFIG.");
   const config = loadHubConfig(configPath);
-  const registry = new DeviceRegistry(config.devices);
+  const registry = new DeviceRegistry(
+    config.devices,
+    config.agentConnectTimeoutMs,
+    config.agentCallTimeoutMs
+  );
   const running = await startHubHttp(config, registry);
   console.error(`CodexPro Multi-Device Hub listening at ${running.url}`);
 
