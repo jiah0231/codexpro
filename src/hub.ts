@@ -13,7 +13,7 @@ function optionValue(argv: string[], name: string): string | undefined {
 }
 
 function printHelp(): void {
-  console.log(`CodexPro Multi-Device Hub\n\nUsage:\n  codexpro-hub --config C:\\path\\to\\hub.json\n\nEnvironment:\n  CODEXPRO_HUB_CONFIG=path/to/hub.json\n  CODEXPRO_HTTP_TOKEN=<at least 24 bytes>\n\nFor a loopback-only test without a token, set CODEXPRO_ALLOW_NO_HTTP_TOKEN=1. Do not use that setting through a tunnel or LAN binding.`);
+  console.log(`CodexPro Multi-Device Hub\n\nUsage:\n  codexpro-hub --config C:\\path\\to\\hub.json\n\nEnvironment:\n  CODEXPRO_HUB_CONFIG=path/to/hub.json\n  CODEXPRO_HTTP_TOKEN=<required, at least 24 UTF-8 bytes>\n\nThe Hub refuses to start without authentication, including on loopback.`);
 }
 
 async function main(): Promise<void> {
