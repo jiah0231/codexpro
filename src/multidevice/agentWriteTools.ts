@@ -23,6 +23,7 @@ export function registerAgentWriteTools(server: McpServer, runtime: AgentRuntime
   }, async (args) => {
     const stored = runtime.requireWorkspace(args.workspace_id);
     const filePath = runtime.relativePath(args.path, "path", "");
+    runtime.assertSingleLinkWriteTarget(stored.workspace, filePath);
     const result = await writeTextFile(config, guard, stored.workspace, filePath, String(args.content ?? ""), {
       createDirs: bool(args.create_dirs, false),
       overwrite: args.overwrite === undefined ? true : bool(args.overwrite, true),
@@ -50,6 +51,7 @@ export function registerAgentWriteTools(server: McpServer, runtime: AgentRuntime
   }, async (args) => {
     const stored = runtime.requireWorkspace(args.workspace_id);
     const filePath = runtime.relativePath(args.path, "path", "");
+    runtime.assertSingleLinkWriteTarget(stored.workspace, filePath);
     const result = await editTextFile(
       config,
       guard,
