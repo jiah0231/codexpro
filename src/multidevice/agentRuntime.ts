@@ -50,9 +50,11 @@ export class AgentRuntime {
   }
 
   publicError(error: unknown): Error {
-    let message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    let message = error instanceof Error ? error.message : String(error);
     for (const root of this.policy.roots) message = message.split(root.path).join(`$ROOT[${root.id}]`);
-    return new Error(message);
+    const publicError = new Error(message);
+    publicError.name = error instanceof Error ? error.name : "Error";
+    return publicError;
   }
 
   requireRoot(rootIdInput: unknown): AgentRootPolicy {
