@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "host": "127.0.0.1",
+  "port": 8790,
+  "maxSessions": 64,
+  "sessionTtlMs": 1800000,
+  "devices": [
+    {
+      "id": "windows-main",
+      "label": "Windows 总控机",
+      "transport": "local",
+      "policyPath": "./windows-agent.example.json"
+    },
+    {
+      "id": "lab-server",
+      "label": "实验室 Linux 服务器",
+      "transport": "ssh",
+      "sshHostAlias": "lab-server",
+      "policyPath": "~/.config/codexpro/agent.json"
+    }
+  ]
+}
