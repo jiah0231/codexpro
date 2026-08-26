@@ -22,7 +22,8 @@ export function registerAgentWriteTools(server: McpServer, runtime: AgentRuntime
     annotations: WRITE_ANNOTATIONS
   }, async (args) => {
     const stored = runtime.requireWorkspace(args.workspace_id);
-    const result = await writeTextFile(config, guard, stored.workspace, String(args.path ?? ""), String(args.content ?? ""), {
+    const filePath = runtime.relativePath(args.path, "path", "");
+    const result = await writeTextFile(config, guard, stored.workspace, filePath, String(args.content ?? ""), {
       createDirs: bool(args.create_dirs, false),
       overwrite: args.overwrite === undefined ? true : bool(args.overwrite, true),
       expectedSha256: args.expected_sha256
@@ -48,11 +49,12 @@ export function registerAgentWriteTools(server: McpServer, runtime: AgentRuntime
     annotations: WRITE_ANNOTATIONS
   }, async (args) => {
     const stored = runtime.requireWorkspace(args.workspace_id);
+    const filePath = runtime.relativePath(args.path, "path", "");
     const result = await editTextFile(
       config,
       guard,
       stored.workspace,
-      String(args.path ?? ""),
+      filePath,
       String(args.old_text ?? ""),
       String(args.new_text ?? ""),
       {
