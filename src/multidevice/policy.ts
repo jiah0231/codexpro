@@ -115,6 +115,9 @@ function stringArray(value: unknown, field: string, maximum: number): string[] {
     if (!text || text.length > 300 || /[\r\n\0]/.test(text)) {
       throw new Error(`${field}[${index}] must be a non-empty single-line string of at most 300 characters.`);
     }
+    if (text.startsWith("!")) {
+      throw new Error(`${field}[${index}] must not be a negated glob.`);
+    }
     return text;
   });
 }
@@ -159,6 +162,17 @@ export function loadAgentPolicy(policyPathInput: string): AgentPolicy {
       throw new Error(
         `Agent policy must be stored outside every approved root. Move the policy file out of root ${root.id}.`
       );
+    }
+  }
+  for (let left = 0; left < roots.length; left += 1) {
+    for (let right = left + 1; right < roots.length; right += 1) {
+      const leftRoot = roots[left];
+      const rightRoot = roots[right];
+      if (isPathInside(leftRoot.path, rightRoot.path) || isPathInside(rightRoot.path, leftRoot.path)) {
+        throw new Error(
+          `Approved roots must not overlap: ${leftRoot.id} and ${rightRoot.id}. Use disjoint directories to keep read-only and workspace permissions unambiguous.`
+        );
+      }
     }
   }
   return {
