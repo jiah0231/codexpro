@@ -1,5 +1,6 @@
+import path from "node:path";
 import type { AgentWorkspaceDescriptor, HubWorkspaceDescriptor } from "./types.js";
-import { resultStructured, resultText, sessionNonce, stableToken } from "./types.js";
+import { resultStructured, resultText, SAFE_ID_PATTERN, sessionNonce, stableToken } from "./types.js";
 import { DeviceRegistry, type DeviceClient } from "./deviceClient.js";
 
 export type PublicHubWorkspace = Omit<HubWorkspaceDescriptor, "remoteWorkspaceId">;
@@ -15,22 +16,54 @@ function publicWorkspace(workspace: HubWorkspaceDescriptor): PublicHubWorkspace 
   return visible;
 }
 
+function safeRemoteText(value: unknown, maximum: number): string {
+  const text = String(value ?? "")
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "?")
+    .trim();
+  if (!text || text.length > maximum) throw new Error("Target agent returned invalid descriptor text.");
+  return text;
+}
+
+function safeRemoteId(value: unknown, field: string): string {
+  const id = safeRemoteText(value, 64);
+  if (!SAFE_ID_PATTERN.test(id)) throw new Error(`Target agent returned an invalid ${field}.`);
+  return id;
+}
+
+function safeRemoteRelativeDirectory(value: unknown): string {
+  const relativeDir = safeRemoteText(value, 4096).replaceAll("\\", "/");
+  if (path.posix.isAbsolute(relativeDir) || path.win32.isAbsolute(relativeDir)) {
+    throw new Error("Target agent returned an absolute workspace directory.");
+  }
+  if (relativeDir.split("/").some((segment) => segment === "..")) {
+    throw new Error("Target agent returned a traversing workspace directory.");
+  }
+  const normalized = path.posix.normalize(relativeDir);
+  if (normalized === ".." || normalized.startsWith("../")) {
+    throw new Error("Target agent returned a workspace outside its approved root.");
+  }
+  return normalized;
+}
+
 function requireRemoteSuccess(result: any, operation: string): Record<string, unknown> {
-  if (result?.isError) throw new Error(`${operation} failed: ${resultText(result) || "target agent returned an error"}`);
+  if (result?.isError) {
+    const detail = resultText(result)
+      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "?")
+      .slice(0, 1000);
+    throw new Error(`${operation} failed: ${detail || "target agent returned an error"}`);
+  }
   return resultStructured(result);
 }
 
 function parseRemoteWorkspace(value: unknown): AgentWorkspaceDescriptor {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Target agent returned an invalid workspace descriptor.");
   const candidate = value as Record<string, unknown>;
-  const id = String(candidate.id ?? "").trim();
-  const rootId = String(candidate.rootId ?? "").trim();
-  const relativeDir = String(candidate.relativeDir ?? "").trim();
-  const displayPath = String(candidate.displayPath ?? "").trim();
-  const openedAt = String(candidate.openedAt ?? "").trim();
-  if (!id || !rootId || !relativeDir || !displayPath || !openedAt) {
-    throw new Error("Target agent returned an incomplete workspace descriptor.");
-  }
+  const id = safeRemoteId(candidate.id, "workspace id");
+  const rootId = safeRemoteId(candidate.rootId, "root id");
+  const relativeDir = safeRemoteRelativeDirectory(candidate.relativeDir);
+  const displayPath = safeRemoteText(candidate.displayPath, 4096);
+  const openedAt = safeRemoteText(candidate.openedAt, 64);
+  if (!Number.isFinite(Date.parse(openedAt))) throw new Error("Target agent returned an invalid workspace timestamp.");
   return { id, rootId, relativeDir, displayPath, openedAt };
 }
 
@@ -124,7 +157,7 @@ export class HubSession {
   }
 
   async forward(scope: ForwardScope, toolName: string, args: Record<string, unknown>): Promise<any> {
-    const result = await scope.client.callTool(toolName, { ...scope.remoteArgs, ...args });
+    const result = await scope.client.callTool(toolName, { ...args, ...scope.remoteArgs });
     const structured = { ...resultStructured(result) };
     delete structured.device_id;
     delete structured.workspace_id;
