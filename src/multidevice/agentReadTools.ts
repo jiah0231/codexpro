@@ -1,8 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { repoTree, readTextFile } from "../fsOps.js";
-import { gitDiff, gitStatus } from "../gitOps.js";
 import { searchWorkspace } from "../searchOps.js";
+import { agentGitDiff, agentGitStatus } from "./agentGitOps.js";
 import type { AgentRuntime } from "./agentRuntime.js";
 import { bool, int, READ_ONLY_ANNOTATIONS, readScopeSchema, registerAgentTool } from "./mcpTools.js";
 import { textResult } from "./types.js";
@@ -24,7 +24,7 @@ export function registerAgentReadTools(server: McpServer, runtime: AgentRuntime)
   }, async (args) => {
     const scope = runtime.readScope(args);
     const result = await repoTree(config, guard, scope.workspace, {
-      path: args.path ?? ".",
+      path: runtime.relativePath(args.path, "path", "."),
       maxDepth: int(args.max_depth, 4, 1, 12),
       includeHidden: bool(args.include_hidden, false),
       maxEntries: int(args.max_entries, 800, 1, 3000)
@@ -56,7 +56,7 @@ export function registerAgentReadTools(server: McpServer, runtime: AgentRuntime)
     const result = await searchWorkspace(config, guard, scope.workspace, {
       query: String(args.query ?? ""),
       regex: bool(args.regex, false),
-      root: args.path ?? ".",
+      root: runtime.relativePath(args.path, "path", "."),
       glob: args.glob,
       includeHidden: bool(args.include_hidden, false),
       maxResults: int(args.max_results, config.maxSearchResults, 1, config.maxSearchResults)
@@ -85,7 +85,8 @@ export function registerAgentReadTools(server: McpServer, runtime: AgentRuntime)
     annotations: READ_ONLY_ANNOTATIONS
   }, async (args) => {
     const scope = runtime.readScope(args);
-    const result = await readTextFile(config, guard, scope.workspace, String(args.path ?? ""), {
+    const filePath = runtime.relativePath(args.path, "path", "");
+    const result = await readTextFile(config, guard, scope.workspace, filePath, {
       startLine: args.start_line,
       endLine: args.end_line,
       maxBytes: args.max_bytes
@@ -101,7 +102,7 @@ export function registerAgentReadTools(server: McpServer, runtime: AgentRuntime)
 
   registerAgentTool(server, runtime, "agent_git_status", {
     title: "Target Git Status",
-    description: "Show Git status for an explicitly opened workspace.",
+    description: "Show Git status for an explicitly opened workspace without invoking fsmonitor, hooks, pagers, or inherited Git control variables.",
     inputSchema: {
       workspace_id: z.string().min(1).max(64).describe("Agent workspace id from agent_open_workspace."),
       path: z.string().max(4096).optional(),
@@ -110,19 +111,20 @@ export function registerAgentReadTools(server: McpServer, runtime: AgentRuntime)
     annotations: READ_ONLY_ANNOTATIONS
   }, async (args) => {
     const stored = runtime.requireWorkspace(args.workspace_id);
-    const output = gitStatus(config, stored.workspace, guard, args.path, bool(args.staged, false));
+    const filePath = args.path === undefined ? undefined : runtime.relativePath(args.path, "path", "");
+    const output = agentGitStatus(config, guard, stored.workspace, filePath, bool(args.staged, false));
     return textResult(output, {
       device_id: policy.deviceId,
       workspace_id: stored.descriptor.id,
       status: output,
-      path: args.path ?? null,
+      path: filePath ?? null,
       staged: bool(args.staged, false)
     });
   });
 
   registerAgentTool(server, runtime, "agent_git_diff", {
     title: "Target Git Diff",
-    description: "Show a no-external-driver Git diff for an explicitly opened workspace.",
+    description: "Show a bounded Git diff for an explicitly opened workspace without invoking external diff drivers, textconv, fsmonitor, hooks, or pagers.",
     inputSchema: {
       workspace_id: z.string().min(1).max(64).describe("Agent workspace id from agent_open_workspace."),
       path: z.string().max(4096).optional(),
@@ -131,12 +133,13 @@ export function registerAgentReadTools(server: McpServer, runtime: AgentRuntime)
     annotations: READ_ONLY_ANNOTATIONS
   }, async (args) => {
     const stored = runtime.requireWorkspace(args.workspace_id);
-    const output = gitDiff(config, guard, stored.workspace, args.path, bool(args.staged, false));
+    const filePath = args.path === undefined ? undefined : runtime.relativePath(args.path, "path", "");
+    const output = agentGitDiff(config, guard, stored.workspace, filePath, bool(args.staged, false));
     return textResult(output, {
       device_id: policy.deviceId,
       workspace_id: stored.descriptor.id,
       diff: output,
-      path: args.path ?? null,
+      path: filePath ?? null,
       staged: bool(args.staged, false)
     });
   });
