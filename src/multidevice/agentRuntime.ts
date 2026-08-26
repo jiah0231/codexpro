@@ -5,6 +5,8 @@ import { CodexProError, isSubpath, normalizeRelPath, PathGuard, type Workspace }
 import type { AgentPolicy, AgentRootPolicy, AgentWorkspaceDescriptor, RootDescriptor } from "./types.js";
 import { stableToken } from "./types.js";
 
+const MAX_AGENT_WORKSPACES = 256;
+
 export interface StoredAgentWorkspace {
   descriptor: AgentWorkspaceDescriptor;
   workspace: Workspace;
@@ -64,6 +66,17 @@ export class AgentRuntime {
     return root;
   }
 
+  private rememberWorkspace(id: string, stored: StoredAgentWorkspace): StoredAgentWorkspace {
+    this.workspaces.delete(id);
+    while (this.workspaces.size >= MAX_AGENT_WORKSPACES) {
+      const oldestId = this.workspaces.keys().next().value as string | undefined;
+      if (!oldestId) break;
+      this.workspaces.delete(oldestId);
+    }
+    this.workspaces.set(id, stored);
+    return stored;
+  }
+
   openWorkspace(rootIdInput: unknown, relativeDirInput: unknown): StoredAgentWorkspace {
     const root = this.requireRoot(rootIdInput);
     if (root.mode !== "workspace-parent") {
@@ -80,7 +93,7 @@ export class AgentRuntime {
     const relativeDir = normalizeRelPath(path.relative(root.path, realRoot) || ".");
     const id = stableToken("aws", this.policy.deviceId, root.id, realRoot);
     const existing = this.workspaces.get(id);
-    if (existing) return existing;
+    if (existing) return this.rememberWorkspace(id, existing);
     const openedAt = new Date().toISOString();
     const descriptor: AgentWorkspaceDescriptor = {
       id,
@@ -89,9 +102,11 @@ export class AgentRuntime {
       displayPath: relativeDir === "." ? root.label : `${root.label}/${relativeDir}`,
       openedAt
     };
-    const stored: StoredAgentWorkspace = { descriptor, root, workspace: { id, root: realRoot, openedAt } };
-    this.workspaces.set(id, stored);
-    return stored;
+    return this.rememberWorkspace(id, {
+      descriptor,
+      root,
+      workspace: { id, root: realRoot, openedAt }
+    });
   }
 
   listWorkspaces(): AgentWorkspaceDescriptor[] {
@@ -102,6 +117,7 @@ export class AgentRuntime {
     const workspaceId = String(workspaceIdInput ?? "").trim();
     const stored = this.workspaces.get(workspaceId);
     if (!stored) throw new CodexProError(`Unknown workspace_id: ${workspaceId || "(empty)"}. Call agent_open_workspace first.`);
+    this.rememberWorkspace(workspaceId, stored);
     return stored;
   }
 
