@@ -3,6 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { DeviceStatus, HubDevice } from "./types.js";
 import { errorMessage, resultStructured } from "./types.js";
+import { CODEXPRO_MULTIDEVICE_VERSION } from "./version.js";
 
 function posixShellQuote(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
@@ -66,7 +67,10 @@ export class DeviceClient {
     transport.stderr?.on("data", (chunk) => {
       stderr = `${stderr}${String(chunk)}`.slice(-4000);
     });
-    const client = new Client({ name: `codexpro-hub-${this.device.id}`, version: "0.31.0" });
+    const client = new Client({
+      name: `codexpro-hub-${this.device.id}`,
+      version: CODEXPRO_MULTIDEVICE_VERSION
+    });
     try {
       await client.connect(transport);
       const description = await client.callTool({ name: "agent_describe", arguments: {} });
