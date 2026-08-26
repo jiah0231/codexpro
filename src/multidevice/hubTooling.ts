@@ -24,9 +24,9 @@ export const HUB_WRITE = {
 };
 
 export const hubReadScopeSchema = {
-  workspace_id: z.string().optional().describe("Hub workspace id from open_workspace."),
-  device_id: z.string().optional().describe("Device id for read-only root access."),
-  root_id: z.string().optional().describe("Approved root id for read-only root access.")
+  workspace_id: z.string().min(1).max(64).optional().describe("Hub workspace id from open_workspace."),
+  device_id: z.string().min(1).max(64).optional().describe("Device id for read-only root access."),
+  root_id: z.string().min(1).max(64).optional().describe("Approved root id for read-only root access.")
 };
 
 export function registerHubTool(
