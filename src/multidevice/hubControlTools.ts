@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { HubSession } from "./hubSession.js";
 import { HUB_READ_ONLY, HUB_SESSION, registerHubTool } from "./hubTooling.js";
-import { resultStructured, resultText, textResult } from "./types.js";
+import { textResult } from "./types.js";
 
 export function registerHubControlTools(server: McpServer, session: HubSession): void {
   registerHubTool(server, "list_devices", {
@@ -22,17 +22,17 @@ export function registerHubControlTools(server: McpServer, session: HubSession):
     title: "List Device Roots",
     description: "Connect to one approved device and list its administrator-approved roots and access modes.",
     inputSchema: {
-      device_id: z.string().describe("Device id from list_devices.")
+      device_id: z.string().min(1).max(64).describe("Device id from list_devices.")
     },
     annotations: HUB_READ_ONLY
   }, async (args) => {
-    const { client, result } = await session.listRoots(args.device_id);
-    const structured = resultStructured(result);
-    return textResult(resultText(result), {
+    const { client, roots } = await session.listRoots(args.device_id);
+    const text = roots.map((root) => `- ${root.id}: ${root.label} (${root.mode})`).join("\n") || "- none";
+    return textResult(text, {
       device_id: client.device.id,
       device_label: client.device.label,
-      roots: structured.roots ?? [],
-      count: structured.count ?? 0
+      roots,
+      count: roots.length
     });
   });
 
@@ -40,9 +40,9 @@ export function registerHubControlTools(server: McpServer, session: HubSession):
     title: "Open Device Workspace",
     description: "Select a device and an existing project directory inside one workspace-parent root. The returned hub workspace id is required for writes.",
     inputSchema: {
-      device_id: z.string().describe("Device id from list_devices."),
-      root_id: z.string().describe("workspace-parent root id from list_device_roots."),
-      relative_dir: z.string().optional().describe("Project directory relative to the approved root. Default: .")
+      device_id: z.string().min(1).max(64).describe("Device id from list_devices."),
+      root_id: z.string().min(1).max(64).describe("workspace-parent root id from list_device_roots."),
+      relative_dir: z.string().max(4096).optional().describe("Project directory relative to the approved root. Default: .")
     },
     annotations: HUB_SESSION
   }, async (args) => {
