@@ -3,6 +3,8 @@ import type { AgentWorkspaceDescriptor, HubWorkspaceDescriptor } from "./types.j
 import { resultStructured, resultText, SAFE_ID_PATTERN, sessionNonce, stableToken } from "./types.js";
 import { DeviceRegistry, type DeviceClient } from "./deviceClient.js";
 
+const MAX_HUB_WORKSPACES = 128;
+
 export type PublicHubWorkspace = Omit<HubWorkspaceDescriptor, "remoteWorkspaceId">;
 
 interface ForwardScope {
@@ -74,6 +76,17 @@ export class HubSession {
 
   constructor(readonly registry: DeviceRegistry) {}
 
+  private rememberWorkspace(workspace: HubWorkspaceDescriptor): HubWorkspaceDescriptor {
+    this.workspaces.delete(workspace.id);
+    while (this.workspaces.size >= MAX_HUB_WORKSPACES) {
+      const oldestId = this.workspaces.keys().next().value as string | undefined;
+      if (!oldestId) break;
+      this.workspaces.delete(oldestId);
+    }
+    this.workspaces.set(workspace.id, workspace);
+    return workspace;
+  }
+
   listWorkspaces(): PublicHubWorkspace[] {
     return [...this.workspaces.values()].map(publicWorkspace);
   }
@@ -87,7 +100,7 @@ export class HubSession {
     const workspaceId = String(workspaceIdInput ?? "").trim();
     const workspace = this.workspaces.get(workspaceId);
     if (!workspace) throw new Error(`Unknown workspace_id: ${workspaceId || "(empty)"}. Call open_workspace in this MCP session first.`);
-    return workspace;
+    return this.rememberWorkspace(workspace);
   }
 
   async listRoots(deviceIdInput: unknown): Promise<{ client: DeviceClient; result: any }> {
@@ -108,7 +121,7 @@ export class HubSession {
     const remote = parseRemoteWorkspace(structured.workspace);
     if (remote.rootId !== rootId) throw new Error("Target agent returned a workspace for a different root.");
     const id = stableToken("hws", this.nonce, client.device.id, remote.id);
-    const descriptor: HubWorkspaceDescriptor = {
+    const descriptor = this.rememberWorkspace({
       id,
       deviceId: client.device.id,
       deviceLabel: client.device.label,
@@ -117,8 +130,7 @@ export class HubSession {
       displayPath: `${client.device.label}:${remote.displayPath}`,
       openedAt: remote.openedAt,
       remoteWorkspaceId: remote.id
-    };
-    this.workspaces.set(id, descriptor);
+    });
     this.selectedWorkspaceId = id;
     return publicWorkspace(descriptor);
   }
