@@ -27,6 +27,7 @@
     "local-development",
     "multi-device",
     "ssh-agent",
+    "control-center",
     "cloudflare-tunnel",
     "ngrok",
     "tailscale"
@@ -71,7 +72,8 @@
     "codexpro-mcp": "dist/stdio.js",
     "codexpro-mcp-http": "dist/http.js",
     "codexpro-hub": "dist/hub.js",
-    "codexpro-agent": "dist/agent.js"
+    "codexpro-agent": "dist/agent.js",
+    "codexpro-client": "dist/client.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -82,10 +84,12 @@
     "start:http": "node dist/http.js",
     "start:hub": "node dist/hub.js",
     "start:agent": "node dist/agent.js",
+    "start:client": "node dist/client.js",
     "dev:stdio": "tsx src/stdio.ts",
     "dev:http": "tsx src/http.ts",
     "dev:hub": "tsx src/hub.ts",
     "dev:agent": "tsx src/agent.ts",
+    "dev:client": "tsx src/client.ts",
     "smoke": "node scripts/analysis-smoke.mjs && node scripts/analysis-cli-smoke.mjs && node scripts/smoke.mjs && node scripts/skill-precedence-smoke.mjs && node scripts/import-smoke.mjs && node scripts/http-smoke.mjs && node scripts/widget-smoke.mjs && node scripts/pro-smoke.mjs && node scripts/doctor-smoke.mjs && node scripts/settings-smoke.mjs && node scripts/execute-handoff-smoke.mjs && node scripts/multidevice-smoke.mjs && node scripts/multidevice-hub-smoke.mjs && node scripts/release-guard-smoke.mjs",
     "stress": "npm run build && node scripts/stress.mjs",
     "multidevice:smoke": "npm run build && node scripts/multidevice-smoke.mjs && node scripts/multidevice-hub-smoke.mjs",
