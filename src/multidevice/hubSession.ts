@@ -1,9 +1,10 @@
 import path from "node:path";
-import type { AgentWorkspaceDescriptor, HubWorkspaceDescriptor } from "./types.js";
+import type { HubWorkspaceDescriptor, RootDescriptor } from "./types.js";
 import { resultStructured, resultText, SAFE_ID_PATTERN, sessionNonce, stableToken } from "./types.js";
 import { DeviceRegistry, type DeviceClient } from "./deviceClient.js";
 
 const MAX_HUB_WORKSPACES = 128;
+const MAX_REMOTE_ROOTS = 64;
 
 export type PublicHubWorkspace = Omit<HubWorkspaceDescriptor, "remoteWorkspaceId">;
 
@@ -11,6 +12,12 @@ interface ForwardScope {
   client: DeviceClient;
   remoteArgs: Record<string, unknown>;
   tags: Record<string, unknown>;
+}
+
+interface RemoteWorkspaceRef {
+  id: string;
+  rootId: string;
+  relativeDir: string;
 }
 
 function publicWorkspace(workspace: HubWorkspaceDescriptor): PublicHubWorkspace {
@@ -24,6 +31,14 @@ function safeRemoteText(value: unknown, maximum: number): string {
     .trim();
   if (!text || text.length > maximum) throw new Error("Target agent returned invalid descriptor text.");
   return text;
+}
+
+function safeRemoteLabel(value: unknown): string {
+  const label = String(value ?? "").trim();
+  if (!label || label.length > 120 || /[\r\n\0]/.test(label)) {
+    throw new Error("Target agent returned an invalid root label.");
+  }
+  return label.replace(/[\x01-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "?");
 }
 
 function safeRemoteId(value: unknown, field: string): string {
@@ -50,23 +65,50 @@ function safeRemoteRelativeDirectory(value: unknown): string {
 function requireRemoteSuccess(result: any, operation: string): Record<string, unknown> {
   if (result?.isError) {
     const detail = resultText(result)
-      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "?")
+      .replace(/[\x00-\x1f\x7f]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
       .slice(0, 1000);
     throw new Error(`${operation} failed: ${detail || "target agent returned an error"}`);
   }
   return resultStructured(result);
 }
 
-function parseRemoteWorkspace(value: unknown): AgentWorkspaceDescriptor {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Target agent returned an invalid workspace descriptor.");
+function parseRemoteRoots(value: unknown): RootDescriptor[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_REMOTE_ROOTS) {
+    throw new Error("Target agent returned an invalid root list.");
+  }
+  const seen = new Set<string>();
+  return value.map((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error("Target agent returned an invalid root descriptor.");
+    }
+    const candidate = entry as Record<string, unknown>;
+    const id = safeRemoteId(candidate.id, "root id");
+    if (seen.has(id)) throw new Error(`Target agent returned duplicate root id: ${id}.`);
+    seen.add(id);
+    const mode = candidate.mode;
+    if (mode !== "workspace-parent" && mode !== "read-only") {
+      throw new Error(`Target agent returned an invalid mode for root ${id}.`);
+    }
+    return {
+      id,
+      label: safeRemoteLabel(candidate.label),
+      mode
+    };
+  });
+}
+
+function parseRemoteWorkspace(value: unknown): RemoteWorkspaceRef {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Target agent returned an invalid workspace descriptor.");
+  }
   const candidate = value as Record<string, unknown>;
-  const id = safeRemoteId(candidate.id, "workspace id");
-  const rootId = safeRemoteId(candidate.rootId, "root id");
-  const relativeDir = safeRemoteRelativeDirectory(candidate.relativeDir);
-  const displayPath = safeRemoteText(candidate.displayPath, 4096);
-  const openedAt = safeRemoteText(candidate.openedAt, 64);
-  if (!Number.isFinite(Date.parse(openedAt))) throw new Error("Target agent returned an invalid workspace timestamp.");
-  return { id, rootId, relativeDir, displayPath, openedAt };
+  return {
+    id: safeRemoteId(candidate.id, "workspace id"),
+    rootId: safeRemoteId(candidate.rootId, "root id"),
+    relativeDir: safeRemoteRelativeDirectory(candidate.relativeDir)
+  };
 }
 
 export class HubSession {
@@ -103,16 +145,19 @@ export class HubSession {
     return this.rememberWorkspace(workspace);
   }
 
-  async listRoots(deviceIdInput: unknown): Promise<{ client: DeviceClient; result: any }> {
+  async listRoots(deviceIdInput: unknown): Promise<{ client: DeviceClient; roots: RootDescriptor[] }> {
     const client = this.registry.require(deviceIdInput);
     const result = await client.callTool("agent_list_roots", {});
-    requireRemoteSuccess(result, "list_device_roots");
-    return { client, result };
+    const structured = requireRemoteSuccess(result, "list_device_roots");
+    return {
+      client,
+      roots: parseRemoteRoots(structured.roots)
+    };
   }
 
   async openWorkspace(deviceIdInput: unknown, rootIdInput: unknown, relativeDirInput: unknown): Promise<PublicHubWorkspace> {
     const client = this.registry.require(deviceIdInput);
-    const rootId = String(rootIdInput ?? "").trim();
+    const rootId = safeRemoteId(rootIdInput, "root id");
     const result = await client.callTool("agent_open_workspace", {
       root_id: rootId,
       relative_dir: String(relativeDirInput ?? ".")
@@ -121,14 +166,17 @@ export class HubSession {
     const remote = parseRemoteWorkspace(structured.workspace);
     if (remote.rootId !== rootId) throw new Error("Target agent returned a workspace for a different root.");
     const id = stableToken("hws", this.nonce, client.device.id, remote.id);
+    const displayPath = remote.relativeDir === "."
+      ? `${client.device.label}:${remote.rootId}`
+      : `${client.device.label}:${remote.rootId}/${remote.relativeDir}`;
     const descriptor = this.rememberWorkspace({
       id,
       deviceId: client.device.id,
       deviceLabel: client.device.label,
       rootId: remote.rootId,
       relativeDir: remote.relativeDir,
-      displayPath: `${client.device.label}:${remote.displayPath}`,
-      openedAt: remote.openedAt,
+      displayPath,
+      openedAt: new Date().toISOString(),
       remoteWorkspaceId: remote.id
     });
     this.selectedWorkspaceId = id;
@@ -154,8 +202,8 @@ export class HubSession {
     const client = this.registry.require(deviceId);
     return {
       client,
-      remoteArgs: { root_id: rootId },
-      tags: { device_id: client.device.id, workspace_id: null, root_id: rootId, scope: "root" }
+      remoteArgs: { root_id: safeRemoteId(rootId, "root id") },
+      tags: { device_id: client.device.id, workspace_id: null, root_id: safeRemoteId(rootId, "root id"), scope: "root" }
     };
   }
 
