@@ -6,7 +6,6 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import type { HubConfig } from "./types.js";
 import { DeviceRegistry } from "./deviceClient.js";
 import { createHubServer } from "./hubServer.js";
-import { isLoopbackHost } from "./policy.js";
 
 interface TransportRecord {
   transport: StreamableHTTPServerTransport;
@@ -19,11 +18,18 @@ export interface RunningHub {
   close(): Promise<void>;
 }
 
-function tokenMatches(expectedToken: string | undefined, value: unknown): boolean {
-  if (!expectedToken || typeof value !== "string") return false;
+function tokenMatches(expectedToken: string, value: unknown): boolean {
+  if (typeof value !== "string") return false;
   const expected = Buffer.from(expectedToken);
   const actual = Buffer.from(value);
   return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+function terminalDiagnostic(error: unknown): string {
+  const text = error instanceof Error ? error.stack ?? error.message : String(error);
+  return text
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "?")
+    .slice(0, 12000);
 }
 
 function sessionIdFrom(req: Request): string | undefined {
@@ -46,22 +52,28 @@ function sendSessionError(res: Response, sessionId: string | undefined): void {
   });
 }
 
-function validateAuthentication(config: HubConfig): string | undefined {
+function validateAuthentication(): string {
   const token = process.env.CODEXPRO_HTTP_TOKEN?.trim();
-  if (token && Buffer.byteLength(token, "utf8") < 24) {
-    throw new Error("CODEXPRO_HTTP_TOKEN must contain at least 24 UTF-8 bytes.");
+  if (!token) {
+    throw new Error("CODEXPRO_HTTP_TOKEN is required for codexpro-hub.");
   }
-  const localNoToken = isLoopbackHost(config.host) && process.env.CODEXPRO_ALLOW_NO_HTTP_TOKEN === "1";
-  if (!token && !localNoToken) {
-    throw new Error(
-      "CODEXPRO_HTTP_TOKEN is required. Set a strong token, or set CODEXPRO_ALLOW_NO_HTTP_TOKEN=1 only for a trusted loopback-only test."
-    );
+  if (Buffer.byteLength(token, "utf8") < 24) {
+    throw new Error("CODEXPRO_HTTP_TOKEN must contain at least 24 UTF-8 bytes.");
   }
   return token;
 }
 
+function sendInternalError(res: Response): void {
+  if (res.headersSent) return;
+  res.status(500).json({
+    jsonrpc: "2.0",
+    error: { code: -32603, message: "Internal CodexPro Hub error. Check the Windows Hub terminal." },
+    id: null
+  });
+}
+
 export async function startHubHttp(config: HubConfig, registry: DeviceRegistry): Promise<RunningHub> {
-  const authToken = validateAuthentication(config);
+  const authToken = validateAuthentication();
   const app = express();
   const transports = new Map<string, TransportRecord>();
   const sessionPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -98,14 +110,11 @@ export async function startHubHttp(config: HubConfig, registry: DeviceRegistry):
     res.setHeader("Pragma", "no-cache");
     res.setHeader("Referrer-Policy", "no-referrer");
     res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "DENY");
     next();
   });
 
   app.use((req, res, next) => {
-    if (!authToken) {
-      next();
-      return;
-    }
     const bearer = req.headers.authorization?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
     const queryToken = typeof req.query.codexpro_token === "string"
       ? req.query.codexpro_token
@@ -116,10 +125,16 @@ export async function startHubHttp(config: HubConfig, registry: DeviceRegistry):
       next();
       return;
     }
+
     const now = Date.now();
+    for (const [key, value] of authFailures) {
+      if (value.resetAt <= now) authFailures.delete(key);
+    }
+    if (authFailures.size > 4096) authFailures.clear();
+
     const key = req.ip || req.socket.remoteAddress || "unknown";
     const current = authFailures.get(key);
-    if (!current || current.resetAt <= now) {
+    if (!current) {
       authFailures.set(key, { count: 1, resetAt: now + 60_000 });
       res.status(401).send("Unauthorized");
       return;
@@ -137,47 +152,50 @@ export async function startHubHttp(config: HubConfig, registry: DeviceRegistry):
     res.json({
       ok: true,
       name: "CodexPro Multi-Device Hub",
-      authEnabled: Boolean(authToken),
+      authEnabled: true,
       sessions: transports.size,
       devices: registry.list()
     });
   });
 
   app.post("/mcp", express.json({ limit: "12mb" }), async (req, res) => {
+    let createdTransport: StreamableHTTPServerTransport | undefined;
     try {
       const sessionId = sessionIdFrom(req);
       let transport = getTransport(sessionId);
       if (!transport && !sessionId && isInitializeRequest(req.body)) {
-        transport = new StreamableHTTPServerTransport({
+        const newTransport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (newSessionId: string) => {
             prune();
-            transports.set(newSessionId, { transport: transport!, createdAt: Date.now(), lastSeenAt: Date.now() });
+            transports.set(newSessionId, { transport: newTransport, createdAt: Date.now(), lastSeenAt: Date.now() });
             prune();
           },
           onsessionclosed: (closedSessionId: string) => {
             transports.delete(closedSessionId);
           }
         } as any);
-        (transport as any).onclose = () => {
-          const closedSessionId = (transport as any).sessionId;
+        (newTransport as any).onclose = () => {
+          const closedSessionId = (newTransport as any).sessionId;
           if (closedSessionId) transports.delete(closedSessionId);
         };
-        await createHubServer(registry).connect(transport);
+        createdTransport = newTransport;
+        transport = newTransport;
+        await createHubServer(registry).connect(newTransport);
       } else if (!transport) {
         sendSessionError(res, sessionId);
         return;
       }
       await transport.handleRequest(req, res, req.body);
+      createdTransport = undefined;
     } catch (error) {
-      console.error(error instanceof Error ? error.stack ?? error.message : String(error));
-      if (!res.headersSent) {
-        res.status(500).json({
-          jsonrpc: "2.0",
-          error: { code: -32603, message: "Internal CodexPro Hub error. Check the Windows Hub terminal." },
-          id: null
-        });
+      if (createdTransport) {
+        try {
+          await createdTransport.close();
+        } catch {}
       }
+      console.error(`[codexpro-hub] HTTP request failed: ${terminalDiagnostic(error)}`);
+      sendInternalError(res);
     }
   });
 
@@ -193,24 +211,23 @@ export async function startHubHttp(config: HubConfig, registry: DeviceRegistry):
   app.get("/mcp", handleSessionRequest);
   app.delete("/mcp", handleSessionRequest);
 
-  app.use((error: unknown, req: Request, res: Response, next: NextFunction) => {
-    if (!error || typeof error !== "object" || !("type" in error)) {
-      next(error);
-      return;
+  app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    if (error && typeof error === "object" && "type" in error) {
+      const type = String((error as { type?: unknown }).type ?? "");
+      if (type === "entity.parse.failed" || type === "entity.too.large") {
+        res.status(type === "entity.too.large" ? 413 : 400).json({
+          jsonrpc: "2.0",
+          error: {
+            code: type === "entity.too.large" ? -32000 : -32700,
+            message: type === "entity.too.large" ? "Payload too large." : "Parse error."
+          },
+          id: null
+        });
+        return;
+      }
     }
-    const type = String((error as { type?: unknown }).type ?? "");
-    if (type !== "entity.parse.failed" && type !== "entity.too.large") {
-      next(error);
-      return;
-    }
-    res.status(type === "entity.too.large" ? 413 : 400).json({
-      jsonrpc: "2.0",
-      error: {
-        code: type === "entity.too.large" ? -32000 : -32700,
-        message: type === "entity.too.large" ? "Payload too large." : "Parse error."
-      },
-      id: null
-    });
+    console.error(`[codexpro-hub] Unhandled HTTP error: ${terminalDiagnostic(error)}`);
+    sendInternalError(res);
   });
 
   const pruneTimer = setInterval(prune, Math.min(config.sessionTtlMs, 60_000));
@@ -225,8 +242,9 @@ export async function startHubHttp(config: HubConfig, registry: DeviceRegistry):
     url: `http://${config.host}:${config.port}/mcp`,
     async close(): Promise<void> {
       clearInterval(pruneTimer);
-      for (const record of transports.values()) await record.transport.close();
+      const records = [...transports.values()];
       transports.clear();
+      await Promise.allSettled(records.map((record) => record.transport.close()));
       await registry.close();
       await new Promise<void>((resolve, reject) => {
         httpServer.close((error) => error ? reject(error) : resolve());
