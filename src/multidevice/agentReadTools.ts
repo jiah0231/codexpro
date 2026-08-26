@@ -15,7 +15,7 @@ export function registerAgentReadTools(server: McpServer, runtime: AgentRuntime)
     description: "List files inside one opened workspace or one approved root. Root scope is always read-only.",
     inputSchema: {
       ...readScopeSchema,
-      path: z.string().optional().describe("Relative directory. Default: ."),
+      path: z.string().max(4096).optional().describe("Relative directory. Default: ."),
       max_depth: z.number().int().min(1).max(12).optional(),
       include_hidden: z.boolean().optional(),
       max_entries: z.number().int().min(1).max(3000).optional()
@@ -43,10 +43,10 @@ export function registerAgentReadTools(server: McpServer, runtime: AgentRuntime)
     description: "Search text inside one opened workspace or approved root. Root scope is always read-only.",
     inputSchema: {
       ...readScopeSchema,
-      query: z.string().describe("Text or regular expression to search for."),
+      query: z.string().min(1).max(20000).describe("Text or regular expression to search for."),
       regex: z.boolean().optional(),
-      path: z.string().optional().describe("Relative file or directory. Default: ."),
-      glob: z.string().optional(),
+      path: z.string().max(4096).optional().describe("Relative file or directory. Default: ."),
+      glob: z.string().max(1000).optional(),
       include_hidden: z.boolean().optional(),
       max_results: z.number().int().min(1).max(2000).optional()
     },
@@ -77,9 +77,9 @@ export function registerAgentReadTools(server: McpServer, runtime: AgentRuntime)
     description: "Read a text file inside one opened workspace or approved root. Blocked credential and secret paths remain inaccessible.",
     inputSchema: {
       ...readScopeSchema,
-      path: z.string().describe("File path relative to the selected scope."),
-      start_line: z.number().int().min(1).optional(),
-      end_line: z.number().int().min(1).optional(),
+      path: z.string().min(1).max(4096).describe("File path relative to the selected scope."),
+      start_line: z.number().int().min(1).max(10000000).optional(),
+      end_line: z.number().int().min(1).max(10000000).optional(),
       max_bytes: z.number().int().min(1000).max(2000000).optional()
     },
     annotations: READ_ONLY_ANNOTATIONS
@@ -103,8 +103,8 @@ export function registerAgentReadTools(server: McpServer, runtime: AgentRuntime)
     title: "Target Git Status",
     description: "Show Git status for an explicitly opened workspace.",
     inputSchema: {
-      workspace_id: z.string().describe("Agent workspace id from agent_open_workspace."),
-      path: z.string().optional(),
+      workspace_id: z.string().min(1).max(64).describe("Agent workspace id from agent_open_workspace."),
+      path: z.string().max(4096).optional(),
       staged: z.boolean().optional()
     },
     annotations: READ_ONLY_ANNOTATIONS
@@ -124,8 +124,8 @@ export function registerAgentReadTools(server: McpServer, runtime: AgentRuntime)
     title: "Target Git Diff",
     description: "Show a no-external-driver Git diff for an explicitly opened workspace.",
     inputSchema: {
-      workspace_id: z.string().describe("Agent workspace id from agent_open_workspace."),
-      path: z.string().optional(),
+      workspace_id: z.string().min(1).max(64).describe("Agent workspace id from agent_open_workspace."),
+      path: z.string().max(4096).optional(),
       staged: z.boolean().optional()
     },
     annotations: READ_ONLY_ANNOTATIONS
