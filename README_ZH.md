@@ -95,6 +95,25 @@ codexpro start
 
 两个 ChatGPT 账号或需要硬隔离时，用不同端口和 Server URL 跑两个 CodexPro 进程。
 
+## 多设备 Hub（可选）
+
+需要让 ChatGPT 网页版只连接一台 Windows 总控机，再由总控机选择本机或局域网服务器时，使用独立的多设备模式：
+
+```text
+ChatGPT -> Windows codexpro-hub -> 本机 Agent / 固定 SSH Agent
+```
+
+构建后提供两个额外命令：
+
+```bash
+codexpro-hub --config path/to/hub.json
+codexpro-agent --policy path/to/agent.json
+```
+
+多设备模式将设备、SSH Host 别名和批准 Root 固定在管理员本地配置中；ChatGPT 只能选择已登记设备、Root 和项目子目录。选中的 workspace 可读写，其他批准 Root 只读，未批准目录不可访问。该模式不暴露 Bash、PowerShell、任意 SSH 主机或设备管理工具。
+
+完整配置、Windows/Linux 示例、权限边界与部署步骤见 [MULTI_DEVICE_HUB.md](MULTI_DEVICE_HUB.md)。
+
 ## 命令
 
 ```bash
@@ -168,6 +187,7 @@ codexpro --version
 
 ## 文档
 
+- [多设备 Hub](MULTI_DEVICE_HUB.md)
 - [中文网站](https://rebel0789.github.io/codexpro/zh.html)
 - [中文 FAQ](FAQ_ZH.md)
 - [Security](SECURITY.md)

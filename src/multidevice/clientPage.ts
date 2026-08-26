@@ -1,0 +1,75 @@
+export function clientPage(adminToken: string): string {
+  const tokenLiteral = JSON.stringify(adminToken);
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CodexPro Control Center</title>
+<style>
+:root{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}*{box-sizing:border-box}body{margin:0;background:#0b0d12;color:#edf1f7}button,input,select{font:inherit}button{cursor:pointer}.shell{max-width:1240px;margin:auto;padding:28px 24px 60px}.top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:22px}h1{margin:0;font-size:28px}h2{font-size:17px;margin:0 0 14px}.sub,.muted{color:#8e9aac;line-height:1.55}.sub{margin-top:7px}.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,.7fr);gap:18px}.card{background:#121621;border:1px solid #252b39;border-radius:16px;padding:18px;margin-bottom:18px}.row{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.between{justify-content:space-between}.btn{border:1px solid #344055;background:#1a2130;color:#edf1f7;border-radius:9px;padding:8px 12px}.btn:hover{background:#222c3f}.btn.primary{background:#edf1f8;color:#12151b;border-color:#edf1f8;font-weight:650}.btn.danger{border-color:#653741;background:#27171b;color:#ffc0ca}.small{font-size:12px;padding:6px 8px}.status{display:flex;gap:8px;align-items:center;border:1px solid #343c4c;border-radius:999px;padding:7px 10px;color:#aab5c5}.dot{width:8px;height:8px;border-radius:50%;background:#6c7687}.status.online .dot{background:#43d17b;box-shadow:0 0 0 4px rgba(67,209,123,.1)}.status.offline .dot{background:#ed8b5b}.fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}.full{grid-column:1/-1}label{display:block;font-size:12px;color:#98a5b7;margin-bottom:5px}input,select{width:100%;background:#0d1119;color:#eff3f9;border:1px solid #30394a;border-radius:8px;padding:8px 9px;outline:none}input:focus,select:focus{border-color:#687b9e}.copyrow{display:grid;grid-template-columns:1fr auto;gap:7px}.device{background:#0f131c;border:1px solid #2a3242;border-radius:13px;padding:14px;margin-top:11px}.dtitle{font-weight:650}.meta{font-size:12px;color:#8592a6}.roots{border-top:1px solid #272e3c;margin-top:12px;padding-top:12px}.rootrow{display:grid;grid-template-columns:.65fr .8fr 1.6fr .9fr auto;gap:7px;align-items:end;margin-top:8px}.log{white-space:pre-wrap;overflow:auto;max-height:440px;min-height:180px;background:#090c11;border:1px solid #242a37;border-radius:10px;padding:12px;font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;color:#b7c1d0}.toast{position:fixed;right:22px;bottom:22px;display:none;max-width:420px;background:#1b2432;border:1px solid #3a485d;border-radius:11px;padding:11px 13px;box-shadow:0 16px 45px rgba(0,0,0,.35)}.toast.error{background:#2a171c;border-color:#76424b;color:#ffc0ca}code{background:#0d1119;border:1px solid #282f3d;padding:2px 5px;border-radius:5px;color:#d4ddeb}.testresult{font-size:12px;color:#99c8aa;margin-top:9px;white-space:pre-wrap}@media(max-width:900px){.grid{grid-template-columns:1fr}.fields{grid-template-columns:1fr}.rootrow{grid-template-columns:1fr 1fr}.rootpath{grid-column:1/-1}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="top"><div><h1>CodexPro Control Center</h1><div class="sub">Windows Hub / SSH Agent / Root 权限 / ChatGPT MCP 管理客户端</div></div><div id="hubStatus" class="status"><span class="dot"></span><span>加载中</span></div></div>
+  <div class="grid">
+    <main>
+      <section class="card">
+        <div class="row between"><h2>Hub</h2><div class="row"><button id="startHub" class="btn primary">启动</button><button id="restartHub" class="btn">重启</button><button id="stopHub" class="btn">停止</button></div></div>
+        <div class="fields">
+          <div><label>监听地址</label><input id="hubHost"></div><div><label>端口</label><input id="hubPort" type="number"></div>
+          <div><label>最大 MCP 会话</label><input id="maxSessions" type="number"></div><div><label>会话超时（ms）</label><input id="sessionTtl" type="number"></div>
+          <div class="full"><label>本地 MCP 地址</label><div class="copyrow"><input id="localMcp" readonly><button class="btn copy" data-target="localMcp">复制</button></div></div>
+          <div class="full"><label>Hub Token</label><div class="copyrow"><input id="hubToken" type="password" readonly><div class="row"><button class="btn" id="showToken">显示</button><button class="btn copy" data-target="hubToken">复制</button></div></div></div>
+          <div class="full"><label>公网 HTTPS 基础地址（例如 Cloudflare 域名）</label><input id="publicBase" placeholder="https://codexpro.example.com"></div>
+          <div class="full"><label>ChatGPT MCP URL</label><div class="copyrow"><input id="chatgptUrl" readonly><button class="btn copy" data-target="chatgptUrl">复制</button></div></div>
+        </div>
+        <p class="muted">推荐 Hub 只监听 <code>127.0.0.1</code>。公网地址支持 Bearer Header 时，只复制基础 MCP URL，不把 Token 放进 URL。</p>
+      </section>
+      <section class="card">
+        <div class="row between"><h2>设备与 Root</h2><div class="row"><button id="addLocal" class="btn">+ Windows 本机</button><button id="addSsh" class="btn">+ SSH 服务器</button><button id="save" class="btn primary">保存</button></div></div>
+        <div id="devices"></div><div id="empty" class="muted">还没有设备。</div>
+      </section>
+    </main>
+    <aside>
+      <section class="card"><h2>配置文件</h2><div class="muted" id="configPath">-</div><p class="muted">本机 Agent policy 可直接在这里编辑。SSH Agent policy 保存在目标服务器，不通过 ChatGPT 修改。</p></section>
+      <section class="card"><div class="row between"><h2>运行日志</h2><button id="refresh" class="btn small">刷新</button></div><div id="logs" class="log">暂无日志</div></section>
+    </aside>
+  </div>
+</div>
+<div id="toast" class="toast"></div>
+<script>
+var ADMIN_TOKEN=${tokenLiteral};
+var model=null, saving=false;
+function byId(id){return document.getElementById(id)}
+function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function notice(msg,bad){var e=byId('toast');e.textContent=msg;e.className='toast'+(bad?' error':'');e.style.display='block';clearTimeout(window._tt);window._tt=setTimeout(function(){e.style.display='none'},4200)}
+async function api(url,opt){opt=opt||{};opt.headers=Object.assign({'x-codexpro-admin-token':ADMIN_TOKEN},opt.headers||{});if(opt.body)opt.headers['content-type']='application/json';var r=await fetch(url,opt);var d=await r.json().catch(function(){return {}});if(!r.ok||d.ok===false)throw new Error(d.error||('HTTP '+r.status));return d}
+function defaults(){return {schemaVersion:1,host:'127.0.0.1',port:8790,maxSessions:64,sessionTtlMs:1800000,devices:[]}}
+function unique(prefix){var used=new Set((model.config.devices||[]).map(function(d){return d.id})),id=prefix,n=1;while(used.has(id)){n++;id=prefix+'-'+n}return id}
+function syncTop(){model.config.host=byId('hubHost').value.trim()||'127.0.0.1';model.config.port=Number(byId('hubPort').value||8790);model.config.maxSessions=Number(byId('maxSessions').value||64);model.config.sessionTtlMs=Number(byId('sessionTtl').value||1800000)}
+function chatUrl(){var b=byId('publicBase').value.trim().replace(/\/+$/,'');byId('chatgptUrl').value=b?b+'/mcp?codexpro_token='+encodeURIComponent(model.hubToken||''):''}
+function renderHub(){byId('configPath').textContent=model.configPath;byId('hubHost').value=model.config.host||'127.0.0.1';byId('hubPort').value=model.config.port||8790;byId('maxSessions').value=model.config.maxSessions||64;byId('sessionTtl').value=model.config.sessionTtlMs||1800000;byId('localMcp').value=model.hub.localMcpUrl||'';byId('hubToken').value=model.hubToken||'';var s=byId('hubStatus');s.className='status '+(model.hub.reachable?'online':'offline');s.lastElementChild.textContent=model.hub.reachable?(model.hub.owned?'运行中 · 客户端管理':'运行中 · 外部进程'):'未运行';chatUrl()}
+function policyFor(d){if(!model.localPolicies[d.id])model.localPolicies[d.id]={schemaVersion:1,deviceId:d.id,label:d.label||d.id,roots:[]};return model.localPolicies[d.id]}
+function renderDevices(){var host=byId('devices');host.innerHTML='';var ds=model.config.devices||[];byId('empty').style.display=ds.length?'none':'block';ds.forEach(function(d,idx){var local=d.transport==='local',p=local?policyFor(d):null;var card=document.createElement('div');card.className='device';var extra=local?'':'<div class="full"><label>SSH Host Alias</label><input class="ssh" value="'+esc(d.sshHostAlias||'')+'"></div>';card.innerHTML='<div class="row between"><div><div class="dtitle">'+esc(d.label||d.id)+'</div><div class="meta">'+esc(d.id)+' · '+esc(d.transport)+'</div></div><div class="row"><button class="btn small test">测试连接</button><button class="btn small danger remove">删除</button></div></div><div class="fields" style="margin-top:11px"><div><label>Device ID</label><input class="did" value="'+esc(d.id)+'"></div><div><label>名称</label><input class="dlabel" value="'+esc(d.label||d.id)+'"></div><div><label>传输</label><select class="transport"><option value="local" '+(local?'selected':'')+'>local</option><option value="ssh" '+(!local?'selected':'')+'>ssh</option></select></div><div><label>Agent Policy</label><input class="policy" value="'+esc(d.policyPath||'')+'"></div>'+extra+'</div><div class="testresult"></div>'+(local?'<div class="roots"><div class="row between"><strong style="font-size:13px">批准 Root</strong><button class="btn small addroot">+ Root</button></div><div class="rootlist"></div></div>':'');
+function update(){var old=d.id,next=card.querySelector('.did').value.trim();d.id=next;d.label=card.querySelector('.dlabel').value.trim();d.policyPath=card.querySelector('.policy').value.trim();var nt=card.querySelector('.transport').value;if(nt!==d.transport){d.transport=nt;if(nt==='ssh')d.sshHostAlias=d.id;else delete d.sshHostAlias;renderDevices();return}if(d.transport==='ssh')d.sshHostAlias=(card.querySelector('.ssh')||{}).value||d.id;if(local&&old!==next&&model.localPolicies[old]){model.localPolicies[next]=model.localPolicies[old];delete model.localPolicies[old];model.localPolicies[next].deviceId=next}if(local&&model.localPolicies[next])model.localPolicies[next].label=d.label||next}
+card.querySelectorAll('input,select').forEach(function(e){e.addEventListener('change',update)});card.querySelector('.remove').onclick=function(){model.config.devices.splice(idx,1);if(local)delete model.localPolicies[d.id];renderDevices()};card.querySelector('.test').onclick=async function(){try{await saveState(false);var out=await api('/api/device/test',{method:'POST',body:JSON.stringify({device_id:d.id})});card.querySelector('.testresult').textContent='✓ '+(out.device.platform||'connected')+' · '+((out.device.roots||[]).length)+' roots';notice('设备 '+d.id+' 连接正常')}catch(e){card.querySelector('.testresult').textContent='✗ '+e.message;notice(e.message,true)}};
+if(local){var list=card.querySelector('.rootlist');function draw(){list.innerHTML='';p=policyFor(d);p.roots=p.roots||[];p.roots.forEach(function(r,ri){var line=document.createElement('div');line.className='rootrow';line.innerHTML='<div><label>ID</label><input class="rid" value="'+esc(r.id||'root')+'"></div><div><label>名称</label><input class="rl" value="'+esc(r.label||r.id||'Root')+'"></div><div class="rootpath"><label>本机绝对路径</label><input class="rp" value="'+esc(r.path||'')+'"></div><div><label>权限</label><select class="rm"><option value="workspace-parent" '+(r.mode==='workspace-parent'?'selected':'')+'>workspace-parent</option><option value="read-only" '+(r.mode==='read-only'?'selected':'')+'>read-only</option></select></div><button class="btn small danger rr">删</button>';function ur(){r.id=line.querySelector('.rid').value.trim();r.label=line.querySelector('.rl').value.trim();r.path=line.querySelector('.rp').value.trim();r.mode=line.querySelector('.rm').value}line.querySelectorAll('input,select').forEach(function(e){e.addEventListener('change',ur)});line.querySelector('.rr').onclick=function(){p.roots.splice(ri,1);draw()};list.appendChild(line)})}card.querySelector('.addroot').onclick=function(){p=policyFor(d);p.roots=p.roots||[];p.roots.push({id:'projects'+(p.roots.length?'-'+(p.roots.length+1):''),label:'Projects',path:'',mode:'workspace-parent'});draw()};draw()}host.appendChild(card)})}
+function renderLogs(){byId('logs').textContent=(model.logs||[]).slice(-250).join('\n')||'暂无日志';byId('logs').scrollTop=byId('logs').scrollHeight}
+function render(){renderHub();renderDevices();renderLogs()}
+async function load(){var o=await api('/api/state');model=o.state;if(!model.config)model.config=defaults();model.config.devices=model.config.devices||[];model.localPolicies=model.localPolicies||{};render()}
+async function saveState(show){if(saving)return;saving=true;try{syncTop();var o=await api('/api/state',{method:'PUT',body:JSON.stringify({config:model.config,localPolicies:model.localPolicies})});model=o.state;render();if(show!==false)notice('配置已保存')}finally{saving=false}}
+byId('addLocal').onclick=function(){var id=unique('windows-main');model.config.devices.push({id:id,label:'Windows 总控机',transport:'local',policyPath:'./'+id+'-agent.json'});model.localPolicies[id]={schemaVersion:1,deviceId:id,label:'Windows 总控机',roots:[{id:'projects',label:'Projects',path:'',mode:'workspace-parent'}]};renderDevices()};
+byId('addSsh').onclick=function(){var id=unique('lab-server');model.config.devices.push({id:id,label:'Linux 服务器',transport:'ssh',sshHostAlias:id,policyPath:'~/.config/codexpro/agent.json'});renderDevices()};
+byId('save').onclick=function(){saveState().catch(function(e){notice(e.message,true)})};
+byId('startHub').onclick=async function(){try{await saveState(false);var o=await api('/api/hub/start',{method:'POST'});model.hub=o.hub;renderHub();await logs();notice('Hub 已启动')}catch(e){notice(e.message,true)}};
+byId('restartHub').onclick=async function(){try{await saveState(false);var o=await api('/api/hub/restart',{method:'POST'});model.hub=o.hub;renderHub();await logs();notice('Hub 已重启')}catch(e){notice(e.message,true)}};
+byId('stopHub').onclick=async function(){try{var o=await api('/api/hub/stop',{method:'POST'});model.hub=o.hub;renderHub();await logs();notice('Hub 已停止')}catch(e){notice(e.message,true)}};
+byId('refresh').onclick=function(){load().catch(function(e){notice(e.message,true)})};byId('publicBase').addEventListener('input',chatUrl);byId('showToken').onclick=function(){var e=byId('hubToken');e.type=e.type==='password'?'text':'password';this.textContent=e.type==='password'?'显示':'隐藏'};
+document.addEventListener('click',async function(e){var id=e.target&&e.target.dataset&&e.target.dataset.target;if(!id)return;try{await navigator.clipboard.writeText(byId(id).value);notice('已复制')}catch(_){notice('复制失败，请手动复制',true)}});
+async function logs(){var o=await api('/api/logs');model.logs=o.logs;renderLogs()}setInterval(async function(){try{var o=await api('/api/status');model.hub=o.hub;renderHub()}catch(_){}},3000);load().catch(function(e){notice(e.message,true)});
+</script>
+</body>
+</html>`;
+}

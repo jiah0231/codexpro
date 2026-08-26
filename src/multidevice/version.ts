@@ -1,0 +1,1 @@
+export const CODEXPRO_MULTIDEVICE_VERSION = "0.30.0";
