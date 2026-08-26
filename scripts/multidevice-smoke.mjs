@@ -11,9 +11,11 @@ const projectA = path.join(projects, "project-a");
 const projectB = path.join(projects, "project-b");
 const reference = path.join(temp, "reference");
 const policyPath = path.join(temp, "agent.json");
+let client;
+let transport;
 
-async function tool(client, name, args = {}) {
-  return client.callTool({ name, arguments: args });
+async function tool(activeClient, name, args = {}) {
+  return activeClient.callTool({ name, arguments: args });
 }
 
 try {
@@ -38,12 +40,12 @@ try {
     ]
   }, null, 2), "utf8");
 
-  const transport = new StdioClientTransport({
+  transport = new StdioClientTransport({
     command: process.execPath,
     args: [path.resolve("dist/agent.js"), "--policy", policyPath],
     stderr: "pipe"
   });
-  const client = new Client({ name: "codexpro-multidevice-smoke", version: "1.0.0" });
+  client = new Client({ name: "codexpro-multidevice-smoke", version: "1.0.0" });
   await client.connect(transport);
 
   const tools = await client.listTools();
@@ -111,6 +113,26 @@ try {
   assert.equal(escapeWrite.isError, true);
   await assert.rejects(fsp.stat(path.join(projectB, "escape.txt")));
 
+  const absoluteWrite = await tool(client, "agent_write", {
+    workspace_id: workspaceId,
+    path: path.join(projectB, "absolute-escape.txt"),
+    content: "must not be written\n"
+  });
+  assert.equal(absoluteWrite.isError, true);
+  await assert.rejects(fsp.stat(path.join(projectB, "absolute-escape.txt")));
+
+  const symlinkPath = path.join(projectA, "outside-link");
+  try {
+    await fsp.symlink(reference, symlinkPath, process.platform === "win32" ? "junction" : "dir");
+    const symlinkRead = await tool(client, "agent_read", {
+      workspace_id: workspaceId,
+      path: "outside-link/guide.txt"
+    });
+    assert.equal(symlinkRead.isError, true);
+  } catch (error) {
+    if (!error || !["EPERM", "EACCES", "ENOTSUP"].includes(error.code)) throw error;
+  }
+
   const escapeOpen = await tool(client, "agent_open_workspace", {
     root_id: "projects",
     relative_dir: "../reference"
@@ -124,8 +146,13 @@ try {
   });
   assert.equal(fakeWorkspace.isError, true);
 
-  await client.close();
   console.log("multidevice smoke: ok");
 } finally {
+  try {
+    await client?.close();
+  } catch {}
+  try {
+    await transport?.close();
+  } catch {}
   await fsp.rm(temp, { recursive: true, force: true });
 }
