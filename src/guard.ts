@@ -140,9 +140,12 @@ export class PathGuard {
   isBlockedRelativePath(relPath: string): boolean {
     const rel = normalizeRelPath(relPath).replace(/^\.\//, "");
     if (!rel || rel === ".") return false;
+    const nocase = Boolean(
+      (this.config as CodexProConfig & { blockedGlobsNocase?: boolean }).blockedGlobsNocase
+    );
     return this.config.blockedGlobs.some((glob) =>
-      minimatch(rel, glob, { dot: true, nocase: true, matchBase: false }) ||
-      minimatch(path.basename(rel), glob, { dot: true, nocase: true, matchBase: true })
+      minimatch(rel, glob, { dot: true, nocase, matchBase: false }) ||
+      minimatch(path.basename(rel), glob, { dot: true, nocase, matchBase: true })
     );
   }
 
