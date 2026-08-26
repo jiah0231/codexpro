@@ -78,6 +78,8 @@ export interface HubConfigInput {
   port?: number;
   maxSessions?: number;
   sessionTtlMs?: number;
+  agentConnectTimeoutMs?: number;
+  agentCallTimeoutMs?: number;
   devices: HubDeviceInput[];
 }
 
@@ -104,6 +106,8 @@ export interface HubConfig {
   port: number;
   maxSessions: number;
   sessionTtlMs: number;
+  agentConnectTimeoutMs: number;
+  agentCallTimeoutMs: number;
   devices: HubDevice[];
 }
 
