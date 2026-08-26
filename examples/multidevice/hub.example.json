@@ -4,6 +4,8 @@
   "port": 8790,
   "maxSessions": 64,
   "sessionTtlMs": 1800000,
+  "agentConnectTimeoutMs": 20000,
+  "agentCallTimeoutMs": 60000,
   "devices": [
     {
       "id": "windows-main",
