@@ -118,9 +118,7 @@ export async function startHubHttp(config: HubConfig, registry: DeviceRegistry):
     const bearer = req.headers.authorization?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
     const queryToken = typeof req.query.codexpro_token === "string"
       ? req.query.codexpro_token
-      : typeof req.query.token === "string"
-        ? req.query.token
-        : undefined;
+      : undefined;
     if (tokenMatches(authToken, bearer) || tokenMatches(authToken, queryToken)) {
       next();
       return;
@@ -154,6 +152,10 @@ export async function startHubHttp(config: HubConfig, registry: DeviceRegistry):
       name: "CodexPro Multi-Device Hub",
       authEnabled: true,
       sessions: transports.size,
+      maxSessions: config.maxSessions,
+      sessionTtlMs: config.sessionTtlMs,
+      agentConnectTimeoutMs: config.agentConnectTimeoutMs,
+      agentCallTimeoutMs: config.agentCallTimeoutMs,
       devices: registry.list()
     });
   });
