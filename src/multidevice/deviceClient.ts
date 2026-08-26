@@ -9,11 +9,14 @@ function posixShellQuote(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
-function publicConnectionError(error: unknown, device: HubDevice): string {
+function publicConnectionError(device: HubDevice): string {
+  return `Unable to connect to device ${device.label} (${device.id}). Check the Windows Hub terminal.`;
+}
+
+function terminalDiagnostic(error: unknown): string {
   return errorMessage(error)
-    .split(device.policyPath).join("$POLICY")
-    .replace(/[\r\n]+/g, " ")
-    .slice(0, 500);
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "?")
+    .slice(0, 8000);
 }
 
 function transportParameters(device: HubDevice): { command: string; args: string[] } {
@@ -47,6 +50,7 @@ export class DeviceClient {
   private connecting?: Promise<Client>;
   private state: DeviceStatus["status"] = "unknown";
   private lastError?: string;
+  private lastDiagnostic?: string;
 
   constructor(readonly device: HubDevice) {}
 
@@ -83,6 +87,7 @@ export class DeviceClient {
       this.client = client;
       this.state = "online";
       this.lastError = undefined;
+      this.lastDiagnostic = undefined;
       return client;
     } catch (error) {
       try {
@@ -93,7 +98,8 @@ export class DeviceClient {
       } catch {}
       const combined = stderr.trim() ? `${errorMessage(error)}; stderr: ${stderr.trim()}` : errorMessage(error);
       this.state = "offline";
-      this.lastError = publicConnectionError(combined, this.device);
+      this.lastDiagnostic = combined;
+      this.lastError = publicConnectionError(this.device);
       throw new Error(this.lastError);
     }
   }
@@ -113,12 +119,16 @@ export class DeviceClient {
       const result = await client.callTool({ name, arguments: args });
       this.state = "online";
       this.lastError = undefined;
+      this.lastDiagnostic = undefined;
       return result;
     } catch (error) {
+      const diagnostic = this.lastDiagnostic ?? error;
+      console.error(`[codexpro-hub] Device ${this.device.id} failed: ${terminalDiagnostic(diagnostic)}`);
       this.state = "offline";
-      this.lastError = publicConnectionError(error, this.device);
+      this.lastError = publicConnectionError(this.device);
+      this.lastDiagnostic = undefined;
       await this.reset();
-      throw new Error(`Device ${this.device.id} is unavailable: ${this.lastError}`);
+      throw new Error(this.lastError);
     }
   }
 
