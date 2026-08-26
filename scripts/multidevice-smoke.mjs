@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { loadAgentPolicy, loadHubConfig } from "../dist/multidevice/policy.js";
 
 const temp = await fsp.mkdtemp(path.join(os.tmpdir(), "codexpro-multidevice-"));
 const projects = path.join(temp, "projects");
@@ -18,6 +19,18 @@ async function tool(activeClient, name, args = {}) {
   return activeClient.callTool({ name, arguments: args });
 }
 
+function agentPolicy(deviceId = "smoke-device") {
+  return {
+    schemaVersion: 1,
+    deviceId,
+    label: "Smoke Device",
+    roots: [
+      { id: "projects", label: "Projects", path: projects, mode: "workspace-parent" },
+      { id: "reference", label: "Reference", path: reference, mode: "read-only" }
+    ]
+  };
+}
+
 try {
   await Promise.all([
     fsp.mkdir(projectA, { recursive: true }),
@@ -30,15 +43,43 @@ try {
     fsp.writeFile(path.join(projectB, "other.txt"), "other project\n", "utf8"),
     fsp.writeFile(path.join(reference, "guide.txt"), "read only guide\n", "utf8")
   ]);
-  await fsp.writeFile(policyPath, JSON.stringify({
+  await fsp.writeFile(policyPath, JSON.stringify(agentPolicy(), null, 2), "utf8");
+
+  const loadedPolicy = loadAgentPolicy(policyPath);
+  assert.equal(loadedPolicy.deviceId, "smoke-device");
+
+  const validHubPath = path.join(temp, "hub.json");
+  await fsp.writeFile(validHubPath, JSON.stringify({
     schemaVersion: 1,
-    deviceId: "smoke-device",
-    label: "Smoke Device",
-    roots: [
-      { id: "projects", label: "Projects", path: projects, mode: "workspace-parent" },
-      { id: "reference", label: "Reference", path: reference, mode: "read-only" }
+    host: "127.0.0.1",
+    port: 8799,
+    devices: [
+      { id: "smoke-device", label: "Smoke Device", transport: "local", policyPath }
     ]
   }, null, 2), "utf8");
+  assert.equal(loadHubConfig(validHubPath).devices.length, 1);
+
+  const policyInsideWritableRoot = path.join(projectA, "agent-policy.json");
+  await fsp.writeFile(policyInsideWritableRoot, JSON.stringify(agentPolicy(), null, 2), "utf8");
+  assert.throws(() => loadAgentPolicy(policyInsideWritableRoot), /outside every approved root/);
+
+  const hubInsideWritableRoot = path.join(projectA, "hub.json");
+  await fsp.writeFile(hubInsideWritableRoot, JSON.stringify({
+    schemaVersion: 1,
+    devices: [
+      { id: "smoke-device", label: "Smoke Device", transport: "local", policyPath }
+    ]
+  }, null, 2), "utf8");
+  assert.throws(() => loadHubConfig(hubInsideWritableRoot), /outside every approved local root/);
+
+  const mismatchedHubPath = path.join(temp, "hub-mismatched.json");
+  await fsp.writeFile(mismatchedHubPath, JSON.stringify({
+    schemaVersion: 1,
+    devices: [
+      { id: "different-device", label: "Different", transport: "local", policyPath }
+    ]
+  }, null, 2), "utf8");
+  assert.throws(() => loadHubConfig(mismatchedHubPath), /identity mismatch/);
 
   transport = new StdioClientTransport({
     command: process.execPath,
