@@ -94,10 +94,29 @@ function tool(client, name, args = {}) {
   return client.callTool({ name, arguments: args });
 }
 
+function comparable(value) {
+  return process.platform === "win32" ? value.toLowerCase() : value;
+}
+
+function serializedPathVariants(secretPath) {
+  const slashPath = secretPath.replaceAll("\\", "/");
+  return new Set([
+    secretPath,
+    slashPath,
+    JSON.stringify(secretPath).slice(1, -1),
+    JSON.stringify(slashPath).slice(1, -1)
+  ]);
+}
+
 function assertNoControlPlanePaths(value) {
-  const serialized = JSON.stringify(value);
+  const serialized = comparable(JSON.stringify(value));
   for (const secretPath of [projects, reference, policyPath, hubConfigPath]) {
-    assert(!serialized.includes(secretPath), `MCP result leaked control-plane or absolute path: ${secretPath}`);
+    for (const variant of serializedPathVariants(secretPath)) {
+      assert(
+        !serialized.includes(comparable(variant)),
+        `MCP result leaked control-plane or absolute path: ${secretPath}`
+      );
+    }
   }
 }
 
@@ -185,10 +204,17 @@ try {
     assert(names.has(required), `Missing Hub tool: ${required}`);
   }
   assert(![...names].some((name) => name.startsWith("agent_") || name.includes("bash") || name.includes("shell")));
+
   const writeTool = listedTools.tools.find((entry) => entry.name === "write");
-  assert(writeTool.inputSchema.required.includes("workspace_id"));
-  assert(!("root_id" in writeTool.inputSchema.properties));
-  assert(!("device_id" in writeTool.inputSchema.properties));
+  assert(writeTool, "Missing write tool descriptor.");
+  const writeSchema = writeTool.inputSchema ?? {};
+  const writeRequired = Array.isArray(writeSchema.required) ? writeSchema.required : [];
+  const writeProperties = writeSchema.properties && typeof writeSchema.properties === "object"
+    ? writeSchema.properties
+    : {};
+  assert(writeRequired.includes("workspace_id"));
+  assert(!("root_id" in writeProperties));
+  assert(!("device_id" in writeProperties));
 
   const devices = await tool(clientA, "list_devices");
   assert.equal(devices.isError, undefined);
@@ -198,6 +224,14 @@ try {
   assert.equal(roots.isError, undefined);
   assert.equal(roots.structuredContent.roots.length, 2);
   assertNoControlPlanePaths(roots);
+
+  const readonlyOpen = await tool(clientA, "open_workspace", {
+    device_id: "windows-main",
+    root_id: "reference",
+    relative_dir: "."
+  });
+  assert.equal(readonlyOpen.isError, true);
+  assertNoControlPlanePaths(readonlyOpen);
 
   const openedA = await tool(clientA, "open_workspace", {
     device_id: "windows-main",
