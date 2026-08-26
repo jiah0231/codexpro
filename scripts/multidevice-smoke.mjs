@@ -63,6 +63,24 @@ try {
   await fsp.writeFile(policyInsideWritableRoot, JSON.stringify(agentPolicy(), null, 2), "utf8");
   assert.throws(() => loadAgentPolicy(policyInsideWritableRoot), /outside every approved root/);
 
+  const overlappingPolicyPath = path.join(temp, "agent-overlapping-roots.json");
+  await fsp.writeFile(overlappingPolicyPath, JSON.stringify({
+    schemaVersion: 1,
+    deviceId: "overlapping-device",
+    roots: [
+      { id: "parent", path: projects, mode: "workspace-parent" },
+      { id: "nested", path: projectA, mode: "read-only" }
+    ]
+  }, null, 2), "utf8");
+  assert.throws(() => loadAgentPolicy(overlappingPolicyPath), /must not overlap/);
+
+  const negatedGlobPolicyPath = path.join(temp, "agent-negated-glob.json");
+  await fsp.writeFile(negatedGlobPolicyPath, JSON.stringify({
+    ...agentPolicy("negated-glob-device"),
+    blockedGlobs: ["!**/.env"]
+  }, null, 2), "utf8");
+  assert.throws(() => loadAgentPolicy(negatedGlobPolicyPath), /must not be a negated glob/);
+
   const hubInsideWritableRoot = path.join(projectA, "hub.json");
   await fsp.writeFile(hubInsideWritableRoot, JSON.stringify({
     schemaVersion: 1,
